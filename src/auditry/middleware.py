@@ -66,14 +66,17 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
 
         request_data = await self._capture_request(request, correlation_id)
 
-        if request_data.get("user_id"):
-            structlog.contextvars.bind_contextvars(user_id=request_data["user_id"])
-
         try:
             # Process the request
             response = await call_next(request)
 
             execution_duration_ms = (time.time() - execution_start_time) * 1000
+
+            # Re-capture user_id after request processing (dependencies may have set it)
+            user_id = self._extract_user_id(request)
+            if user_id:
+                request_data["user_id"] = user_id
+                structlog.contextvars.bind_contextvars(user_id=user_id)
 
             # Capture response details
             response_data = await self._capture_response(response, execution_duration_ms)
@@ -124,6 +127,20 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
             # Re-raise to let FastAPI's exception handlers deal with it
             raise
 
+    def _extract_user_id(self, request: Request) -> Optional[str]:
+        """
+        Extract user ID from request state.
+
+        Supports two common patterns:
+        1. request.state.user_id (direct ID)
+        2. request.state.user.id (AuthenticatedUser object)
+        """
+        if hasattr(request.state, "user_id"):
+            return request.state.user_id
+        elif hasattr(request.state, "user") and hasattr(request.state.user, "id"):
+            return request.state.user.id
+        return None
+
     async def _capture_request(self, request: Request, correlation_id: Optional[str]) -> Dict[str, Any]:
         """
         Capture all relevant request details for logging.
@@ -132,14 +149,8 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
         Applies redaction and size limits to protect sensitive data.
         """
         # Extract user ID from request state (set by auth middleware/dependencies)
-        # Simplified to support two common patterns:
-        # 1. request.state.user_id (direct ID)
-        # 2. request.state.user.id (AuthenticatedUser object)
-        user_id = None
-        if hasattr(request.state, "user_id"):
-            user_id = request.state.user_id
-        elif hasattr(request.state, "user") and hasattr(request.state.user, "id"):
-            user_id = request.state.user.id
+        # Note: This may be None initially and get set later after dependencies run
+        user_id = self._extract_user_id(request)
 
         # Capture headers (with redaction)
         headers = None
