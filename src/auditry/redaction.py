@@ -13,6 +13,8 @@ DEFAULT_REDACTION_PATTERNS: List[str] = [
     "creditcard",
     "authorization",
     "x-api-key",
+    "cookie",
+    "set-cookie",
 ]
 
 REDACTED_VALUE = "[REDACTED]"
