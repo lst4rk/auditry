@@ -59,7 +59,7 @@ class ObservabilityMiddleware:
         # 2. Then wrap with correlation ID middleware
         # This ensures correlation ID is available to the logging middleware
         correlation_app = BaseCorrelationIdMiddleware(
-            logging_app.app,
+            logging_app,
             header_name=config.correlation_id_header,
         )
 
