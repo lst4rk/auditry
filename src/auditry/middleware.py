@@ -60,9 +60,14 @@ class RequestResponseLoggingMiddleware(BaseHTTPMiddleware):
         # Get correlation ID from context (set by CorrelationIdMiddleware)
         correlation_id = get_correlation_id()
 
+        structlog.contextvars.bind_contextvars(correlation_id=correlation_id)
+
         execution_start_time = time.time()
 
         request_data = await self._capture_request(request, correlation_id)
+
+        if request_data.get("user_id"):
+            structlog.contextvars.bind_contextvars(user_id=request_data["user_id"])
 
         try:
             # Process the request
