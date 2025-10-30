@@ -1,14 +1,14 @@
 [project]
 name = "auditry"
-version = "0.1.4"
-description = "FastAPI middleware for request/response logging, correlation IDs, and sensitive data redaction"
+version = "0.2.1"
+description = "Observability middleware for FastAPI and Quart with request/response logging, correlation IDs, and sensitive data redaction"
 authors = [
     {name = "Liv Stark", email = "livstark.work@gmail.com"}
 ]
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
-keywords = ["fastapi", "observability", "logging", "middleware", "correlation-id", "redaction"]
+keywords = ["fastapi", "quart", "observability", "logging", "middleware", "correlation-id", "redaction"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -18,15 +18,36 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Framework :: FastAPI",
+    "Framework :: AsyncIO",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Logging",
 ]
 
 dependencies = [
-    "fastapi>=0.100.0",
     "pydantic>=2.0.0",
     "structlog>=23.0.0",
     "asgi-correlation-id>=4.0.0",
+]
+
+[project.optional-dependencies]
+fastapi = [
+    "fastapi>=0.100.0",
+    "starlette>=0.27.0",
+]
+quart = [
+    "quart>=0.18.0",
+]
+all = [
+    "fastapi>=0.100.0",
+    "starlette>=0.27.0",
+    "quart>=0.18.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "mypy>=1.0.0",
+    "ruff>=0.1.0",
 ]
 
 [project.urls]
@@ -39,8 +60,25 @@ requires = ["setuptools>=61.0,<70.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["auditry"]
+packages = ["auditry", "auditry.core", "auditry.fastapi", "auditry.quart"]
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
 auditry = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "W", "I", "N", "B", "C4", "PT", "UP"]
+ignore = ["E501"]
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+no_implicit_reexport = true
