@@ -1,6 +1,6 @@
 # auditry
 
-FastAPI observability middleware with automatic request/response logging, correlation IDs, and sensitive data redaction.
+A clean, framework-agnostic observability middleware for FastAPI and Quart that provides comprehensive request/response logging, correlation ID tracking, business event extraction, and sensitive data redaction.
 
 [![PyPI version](https://badge.fury.io/py/auditry.svg)](https://badge.fury.io/py/auditry)
 [![Python Versions](https://img.shields.io/pypi/pyversions/auditry.svg)](https://pypi.org/project/auditry/)
@@ -8,16 +8,32 @@ FastAPI observability middleware with automatic request/response logging, correl
 
 ## Installation
 
+### For FastAPI
+
 ```bash
-pip install auditry
+pip install auditry[fastapi]
+```
+
+### For Quart
+
+```bash
+pip install auditry[quart]
+```
+
+### For both frameworks
+
+```bash
+pip install auditry[all]
 ```
 
 ## Quick Start
 
+### FastAPI
+
 ```python
 from fastapi import FastAPI
-from auditry import configure_logging, ObservabilityMiddleware, ObservabilityConfig
-from auditry import get_logger
+from auditry import configure_logging, ObservabilityConfig, get_logger
+from auditry.fastapi import create_middleware
 
 # Configure structured logging at startup
 configure_logging(level="INFO")
@@ -25,20 +41,42 @@ configure_logging(level="INFO")
 app = FastAPI()
 
 # Add observability middleware (single line!)
-app.add_middleware(
-    ObservabilityMiddleware,
-    config=ObservabilityConfig(
-        service_name="my-service-name",
-    ),
+app = create_middleware(
+    app,
+    config=ObservabilityConfig(service_name="my-service")
 )
 
-logger = get_logger(__name__) # always use the get_logger from this package
+logger = get_logger(__name__)
 
 @app.get("/")
 async def root():
-   
     logger.info("Hello World")
+    return {"message": "Hello World"}
+```
 
+### Quart
+
+```python
+from quart import Quart
+from auditry import configure_logging, ObservabilityConfig, get_logger
+from auditry.quart import create_middleware
+
+# Configure structured logging at startup
+configure_logging(level="INFO")
+
+app = Quart(__name__)
+
+# Add observability middleware (single line!)
+app = create_middleware(
+    app,
+    config=ObservabilityConfig(service_name="my-service")
+)
+
+logger = get_logger(__name__)
+
+@app.route("/")
+async def root():
+    logger.info("Hello World")
     return {"message": "Hello World"}
 ```
 
@@ -52,11 +90,13 @@ config = ObservabilityConfig(
 )
 ```
 
+**Note:** The `service_name` is required and must be provided. This ensures all services have meaningful names in logs rather than generic defaults.
+
 ### Full Configuration Options
 
 ```python
 config = ObservabilityConfig(
-    # REQUIRED: Service name for log filtering
+    # REQUIRED: Service name for log filtering (no default)
     service_name="my-service-name",
 
     # Correlation ID header name (default: X-Correlation-ID)
@@ -77,9 +117,23 @@ config = ObservabilityConfig(
 
     # Whether to log query parameters (default: True)
     log_query_params=True,
+
+    # Whether to log request bodies for all endpoints (default: True)
+    # Set to False for applications handling sensitive data
+    log_request_body=True,
+
+    # Whether to log response bodies for all endpoints (default: True)
+    # Set to False for applications returning sensitive data
+    log_response_body=True,
 )
 
-app.add_middleware(ObservabilityMiddleware, config=config)
+# For FastAPI:
+from auditry.fastapi import create_middleware
+app = create_middleware(app, config)
+
+# For Quart:
+from auditry.quart import create_middleware
+app = create_middleware(app, config)
 ```
 
 ## Correlation IDs
@@ -132,20 +186,48 @@ async def proxy_request():
 
 ## User Tracking
 
-The middleware automatically extracts user IDs from FastAPI dependencies and includes them in logs.
+The middleware automatically extracts user IDs from your authentication system and includes them in logs.
 
-### Supported User Patterns
+### FastAPI User Tracking
 
-The middleware automatically detects user IDs from these patterns:
+```python
+from fastapi import Request, Depends
 
-1. **Object with `id` attribute**: `current_user.id`
-2. **Object with `user_id` attribute**: `current_user.user_id`
-3. **Dict with `id` key**: `user["id"]`
-4. **Dict with `user_id` key**: `user["user_id"]`
-5. **Dict with `sub` key**: `user["sub"]` (JWT standard)
-6. **Request state**: `request.state.user_id`
+async def get_current_user(request: Request):
+    # Your authentication logic here
+    user_id = "user-123"
 
-**You don't need to modify any existing code** - the middleware automatically finds the user ID!
+    # Set user_id in request state for auditry to capture
+    request.state.user_id = user_id
+    # OR if you have a user object:
+    # request.state.user = user_object  # Must have .id or .user_id attribute
+
+    return user_id
+
+@app.get("/protected")
+async def protected_route(user_id: str = Depends(get_current_user)):
+    return {"message": "Protected content"}
+```
+
+### Quart User Tracking
+
+```python
+from quart import request
+
+@app.before_request
+async def authenticate():
+    # Your authentication logic here
+
+    # Set user on request for auditry to capture
+    request.current_user = AuthenticatedUser(id="user-123")
+    # OR use g.user or g.user_id
+    # from quart import g
+    # g.user_id = "user-123"
+```
+
+The middleware automatically finds the user ID from these locations:
+- **FastAPI**: `request.state.user_id` or `request.state.user.id`
+- **Quart**: `request.current_user.id`, `g.user.id`, or `g.user_id`
 
 ## Business Event Tagging (For Analytics)
 
@@ -156,27 +238,28 @@ Tag specific endpoints as "business events" to make analytics queries easier for
 Tag endpoints in your middleware config - zero code changes needed in your actual endpoints:
 
 ```python
-from auditry import ObservabilityMiddleware, ObservabilityConfig, BusinessEventConfig
+from auditry import ObservabilityConfig, BusinessEventConfig
 
-app.add_middleware(
-    ObservabilityMiddleware,
-    config=ObservabilityConfig(
-        service_name="my-service-name",
-        
-        # Define which endpoints to tag for analytics
-        business_events={
-            "POST /workflows": BusinessEventConfig(
-                event_type="workflow.created",
-                extract_from_request=["file_id"],  # Pull file_id from request body
-                extract_from_response=["id"],       # Pull workflow id from response
-            ),
-            "DELETE /workflows/{workflow_id}": BusinessEventConfig(
-                event_type="workflow.deleted",
-                extract_from_path=["workflow_id"],    # Pull workflow_id from URL path
-            ),
-        },
-    ),
+config = ObservabilityConfig(
+    service_name="my-service-name",
+
+    # Define which endpoints to tag for analytics
+    business_events={
+        "POST /workflows": BusinessEventConfig(
+            event_type="workflow.created",
+            extract_from_request=["file_id"],  # Pull file_id from request body
+            extract_from_response=["id"],       # Pull workflow id from response
+        ),
+        "DELETE /workflows/{workflow_id}": BusinessEventConfig(
+            event_type="workflow.deleted",
+            extract_from_path=["workflow_id"],    # Pull workflow_id from URL path
+        ),
+    },
 )
+
+# Apply to your framework
+from auditry.fastapi import create_middleware  # or auditry.quart
+app = create_middleware(app, config)
 ```
 
 ### Log Output with Event Tags
@@ -239,9 +322,11 @@ All logs are structured JSON, ready for log aggregators:
 }
 ```
 
-## Sensitive Data Redaction
+## Sensitive Data Handling
 
-Automatically redacts these sensitive field patterns:
+### Automatic Redaction
+
+Automatically redacts these sensitive field patterns in all logged requests/responses:
 
 - `password`
 - `token`
@@ -260,6 +345,24 @@ config = ObservabilityConfig(
     additional_redaction_patterns=["internal_token", "employee_id"],
 )
 ```
+
+### Disabling Body Logging (Application-Wide)
+
+For applications handling sensitive data, you can disable logging of request and/or response bodies across the entire application:
+
+```python
+config = ObservabilityConfig(
+    service_name="my-service-name",
+
+    # Disable request body logging for all endpoints
+    log_request_body=False,
+
+    # Disable response body logging for all endpoints
+    log_response_body=False,
+)
+```
+
+When body logging is disabled, logs will show `[BODY_LOGGING_DISABLED]` instead of the actual content, while still logging metadata like headers, status codes, and timing information.
 ## Best Practices
 
 ### 1. Configure Logging Early
