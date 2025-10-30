@@ -69,3 +69,11 @@ class ObservabilityConfig(BaseModel):
         default=False, description="Whether to log response headers (redacted)"
     )
     log_query_params: bool = Field(default=True, description="Whether to log query parameters")
+    log_request_body: bool = Field(
+        default=True,
+        description="Whether to log request bodies for the application"
+    )
+    log_response_body: bool = Field(
+        default=True,
+        description="Whether to log response bodies for the application"
+    )
