@@ -31,7 +31,7 @@ from .logging_config import configure_logging, get_logger
 from .correlation import get_correlation_id
 from .models import ObservabilityConfig, BusinessEventConfig
 
-__version__ = "0.2.2"
+__version__ = "0.2.4"
 
 __all__ = [
     # Configuration

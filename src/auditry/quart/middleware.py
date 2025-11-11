@@ -4,9 +4,8 @@ Quart middleware implementation for observability.
 This module provides the Quart-specific middleware that integrates with
 Quart's request/response hooks and uses the core logging functionality.
 """
-
+import inspect
 import time
-from typing import Optional
 
 from quart import Quart, Request, Response, request
 from asgi_correlation_id import CorrelationIdMiddleware

@@ -7,6 +7,7 @@ Quart request and response objects.
 
 import inspect
 import json
+from typing import Dict, Optional
 
 from quart import Request, Response, g
 
