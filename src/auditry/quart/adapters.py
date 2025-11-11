@@ -5,11 +5,11 @@ These adapters implement the abstract base classes to extract data from
 Quart request and response objects.
 """
 
-import inspect
 import json
 from typing import Dict, Optional
 
 from quart import Request, Response, g
+from quart.wrappers.response import IterableBody
 
 from ..core import BaseRequestAdapter, BaseResponseAdapter
 
@@ -140,23 +140,17 @@ class QuartResponseAdapter(BaseResponseAdapter):
         try:
             # For Response objects
             if hasattr(response, "response"):
-                # Check if the response is an async generator (streaming)
-                if inspect.isasyncgen(response.response):
+                # Check if the response is an IterableBody (streaming response)
+                if isinstance(response.response, IterableBody):
                     # This is a streaming response, return None to avoid consuming it
-                    return None
-
-                # Check if it's a regular generator (also streaming)
-                if inspect.isgenerator(response.response):
                     return None
 
             # For Response objects with get_data method (non-streaming)
             if hasattr(response, "get_data"):
                 # Only call get_data if we're sure it's not streaming
                 # Double-check for streaming response attribute
-                if hasattr(response, "response"):
-                    resp_attr = response.response
-                    if inspect.isasyncgen(resp_attr) or inspect.isgenerator(resp_attr):
-                        return None
+                if hasattr(response, "response") and isinstance(response.response, IterableBody):
+                    return None
 
                 # Safe to get data for non-streaming responses
                 data = await response.get_data()
@@ -167,10 +161,6 @@ class QuartResponseAdapter(BaseResponseAdapter):
             # For tuple responses (body, status_code, headers)
             if isinstance(response, tuple) and len(response) >= 1:
                 body = response[0]
-
-                # Check if body is a generator (streaming)
-                if inspect.isasyncgen(body) or inspect.isgenerator(body):
-                    return None
 
                 # Convert various body types to bytes
                 if isinstance(body, bytes):
