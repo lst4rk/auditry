@@ -89,6 +89,41 @@ class QuartMiddleware(BaseMiddleware):
             if not hasattr(request, "observability_start_time"):
                 return response
 
+            # Check if this is a streaming response - if so, handle it separately
+            if hasattr(response, "response"):
+                if inspect.isasyncgen(response.response) or inspect.isgenerator(response.response):
+                    # For streaming responses, log without consuming the stream
+                    duration_ms = (time.time() - request.observability_start_time) * 1000
+
+                    # Get stored correlation ID from before_request
+                    correlation_id = getattr(request, "observability_correlation_id", None)
+                    request_data = getattr(request, "observability_request_data", {})
+
+                    # Re-extract user_id (might have been set during request processing)
+                    user_id = await self.request_adapter.extract_user_id(request)
+
+                    # Log with minimal response data (no body for streaming)
+                    self.logger.log_success(
+                        request_data=request_data,
+                        response_data={
+                            "status_code": response.status_code if hasattr(response, "status_code") else 200,
+                            "headers": dict(response.headers) if hasattr(response, "headers") else {},
+                            "body": None  # Don't try to extract body for streaming
+                        },
+                        duration_ms=duration_ms,
+                        correlation_id=correlation_id,
+                        user_id=user_id,
+                    )
+
+                    # Add correlation ID to response headers (same as non-streaming)
+                    if correlation_id:
+                        response.headers[self.config.correlation_id_header] = correlation_id
+
+                    # Clear cache and return immediately
+                    self.request_adapter.clear_cache(request)
+                    return response
+
+            # Non-streaming response handling
             # Calculate duration
             duration_ms = (time.time() - request.observability_start_time) * 1000
 
