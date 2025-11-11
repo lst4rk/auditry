@@ -6,10 +6,10 @@ the Starlette middleware system and uses the core logging functionality.
 """
 
 import time
-from typing import Optional
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import StreamingResponse
 from asgi_correlation_id import CorrelationIdMiddleware
 
 from ..core import BaseMiddleware, RequestResponseLogger
@@ -104,11 +104,18 @@ class FastAPIMiddleware(BaseHTTPMiddleware, BaseMiddleware):
             # Re-extract user_id (might have been set by auth middleware)
             user_id = await self.request_adapter.extract_user_id(request)
 
-            # Extract response data
-            raw_response_data = await self.response_adapter.extract_all(response)
-
-            # Prepare response data for logging
-            response_data = self.logger.prepare_response_data(raw_response_data)
+            # Handle response data extraction based on response type
+            if isinstance(response, StreamingResponse):
+                # For streaming responses, log without consuming the stream
+                response_data = {
+                    "status_code": response.status_code,
+                    "headers": dict(response.headers),
+                    "body": None
+                }
+            else:
+                # For non-streaming responses, extract full response data
+                raw_response_data = await self.response_adapter.extract_all(response)
+                response_data = self.logger.prepare_response_data(raw_response_data)
 
             # Add correlation ID to response headers
             if correlation_id and self.config.correlation_id_header:
