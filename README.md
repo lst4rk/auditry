@@ -363,6 +363,83 @@ config = ObservabilityConfig(
 ```
 
 When body logging is disabled, logs will show `[BODY_LOGGING_DISABLED]` instead of the actual content, while still logging metadata like headers, status codes, and timing information.
+
+### Excluding Paths from Middleware
+
+You can exclude specific paths from observability middleware processing, which is useful for:
+- Health check endpoints that don't need logging
+- Streaming endpoints that might be disrupted by middleware
+- Internal/admin endpoints with different logging requirements
+- High-frequency endpoints where logging adds too much overhead
+
+#### Simple Path Exclusion
+
+Exclude paths for all HTTP methods:
+
+```python
+config = ObservabilityConfig(
+    service_name="my-service-name",
+    excluded_paths=[
+        '/health',           # Exact match
+        '/metrics',          # Exact match
+        '/stream*',          # Wildcard - matches /stream, /streaming, /stream/events
+        '/api/*/internal',   # Wildcard - matches /api/v1/internal, /api/v2/internal
+        '/admin/',           # Prefix - matches /admin/* (trailing slash indicates prefix)
+    ],
+)
+```
+
+#### Method-Specific Path Exclusion
+
+Exclude paths for specific HTTP methods:
+
+```python
+config = ObservabilityConfig(
+    service_name="my-service-name",
+    excluded_paths={
+        'GET': ['/health', '/metrics'],    # Only exclude GET requests
+        'POST': ['/webhook/*'],             # Only exclude POST requests
+        '*': ['/admin/*'],                  # Exclude all methods
+    },
+)
+```
+
+#### Example: Excluding Streaming Endpoints in Quart
+
+For Quart applications with streaming endpoints that are disrupted by middleware:
+
+```python
+from quart import Quart, Response, stream_with_context
+from auditry import ObservabilityConfig
+from auditry.quart import create_middleware
+
+app = Quart(__name__)
+
+# Exclude all streaming endpoints
+config = ObservabilityConfig(
+    service_name="streaming-service",
+    excluded_paths=['/stream/*', '/events', '/live/*'],
+)
+
+app = create_middleware(app, config)
+
+@app.route('/stream/data')
+async def stream_data():
+    """This endpoint will bypass observability middleware."""
+    @stream_with_context
+    async def generate():
+        for i in range(100):
+            yield f"data: {i}\n\n"
+    return Response(generate(), mimetype='text/event-stream')
+
+@app.route('/api/users')
+async def get_users():
+    """This endpoint will still be logged normally."""
+    return {"users": ["user1", "user2"]}
+```
+
+**Note:** Excluded paths still receive correlation IDs for request tracing, but no request/response logging occurs.
+
 ## Best Practices
 
 ### 1. Configure Logging Early
