@@ -15,6 +15,7 @@ from asgi_correlation_id import CorrelationIdMiddleware
 from ..core import BaseMiddleware, RequestResponseLogger
 from ..correlation import get_correlation_id
 from ..models import ObservabilityConfig
+from ..path_matcher import should_exclude_path
 from .adapters import FastAPIRequestAdapter, FastAPIResponseAdapter
 
 
@@ -79,6 +80,17 @@ class FastAPIMiddleware(BaseHTTPMiddleware, BaseMiddleware):
         Returns:
             The FastAPI response
         """
+        # Check if this path is excluded from observability
+        path = str(request.url.path)
+        method = request.method
+        if should_exclude_path(path, method, self.config.excluded_paths):
+            # For excluded paths, just pass through with correlation ID
+            response = await call_next(request)
+            correlation_id = get_correlation_id()
+            if correlation_id and self.config.correlation_id_header:
+                response.headers[self.config.correlation_id_header] = correlation_id
+            return response
+
         # Get correlation ID (set by correlation middleware if present)
         correlation_id = get_correlation_id()
 
