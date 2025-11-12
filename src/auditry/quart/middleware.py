@@ -1,9 +1,4 @@
-"""
-Quart middleware implementation for observability.
-
-This module provides the Quart-specific middleware that integrates with
-Quart's request/response hooks and uses the core logging functionality.
-"""
+"""Quart observability middleware."""
 import time
 
 from quart import Quart, Request, Response, request
@@ -18,48 +13,25 @@ from .adapters import QuartRequestAdapter, QuartResponseAdapter
 
 
 class QuartMiddleware(BaseMiddleware):
-    """
-    Quart middleware for observability.
-
-    This middleware integrates with Quart's hook system to provide:
-    - Request/response logging
-    - Correlation ID tracking
-    - Business event extraction
-    - Sensitive data redaction
-    """
+    """Quart middleware with logging and correlation."""
 
     def __init__(self, app: Quart, config: ObservabilityConfig):
-        """
-        Initialize Quart middleware and register hooks.
-
-        Args:
-            app: Quart application
-            config: Observability configuration
-        """
         self.app = app
         self.config = config
         self.logger = RequestResponseLogger(config)
         self.request_adapter = QuartRequestAdapter()
         self.response_adapter = QuartResponseAdapter()
 
-        # Apply correlation ID middleware at ASGI level
         self._setup_correlation_middleware()
-
-        # Register request/response hooks
         self._register_hooks()
 
     def _setup_correlation_middleware(self):
-        """Wrap the Quart app with correlation ID middleware at the ASGI level."""
-        # Store the original ASGI app
+        """Setup correlation ID middleware."""
         original_asgi = self.app.asgi_app
-
-        # Wrap with correlation ID middleware
         correlation_app = CorrelationIdMiddleware(
             app=original_asgi,
             header_name=self.config.correlation_id_header,
         )
-
-        # Replace the ASGI app
         self.app.asgi_app = correlation_app
 
     def _register_hooks(self):
@@ -67,24 +39,21 @@ class QuartMiddleware(BaseMiddleware):
 
         @self.app.before_request
         async def capture_request_start():
-            """Capture request start time and initial data."""
-            # Check if this path is excluded from observability
+            """Hook for request start."""
+            # Early exit for excluded paths
             if should_exclude_path(request.path, request.method, self.config.excluded_paths):
-                request.observability_excluded = True
-                # Still set correlation ID for excluded paths (useful for tracing)
-                request.observability_correlation_id = get_correlation_id()
+                setattr(request, 'observability_excluded', True)
+                setattr(request, 'observability_correlation_id', get_correlation_id())
                 return
 
-            # Store timing and correlation data
             request.observability_start_time = time.time()
             request.observability_correlation_id = get_correlation_id()
             request.observability_excluded = False
 
-            # Pre-extract request data (especially body which needs caching)
+            # extract and cache request body early
             raw_request_data = await self.request_adapter.extract_all(request)
             request.observability_raw_data = raw_request_data
 
-            # Prepare request data for logging
             request.observability_request_data = self.logger.prepare_request_data(
                 raw_request_data,
                 request.observability_correlation_id
@@ -107,7 +76,7 @@ class QuartMiddleware(BaseMiddleware):
 
             # Check if this is a streaming response - if so, handle it separately
             if hasattr(response, "response") and isinstance(response.response, IterableBody):
-                # For streaming responses, log without consuming the stream
+                # hands off the stream
                 duration_ms = (time.time() - request.observability_start_time) * 1000
 
                 # Get stored correlation ID from before_request

@@ -1,9 +1,4 @@
-"""
-Path matching utilities for excluding paths from middleware processing.
-
-This module provides functions to check if a request path should be excluded
-from observability middleware based on configured patterns.
-"""
+"""Path matching utilities for middleware exclusions."""
 import fnmatch
 from typing import Optional, List, Dict, Union
 
@@ -17,15 +12,12 @@ def should_exclude_path(
     Check if a request path should be excluded from middleware processing.
 
     Args:
-        path: The request path (e.g., '/api/health', '/stream/events')
-        method: The HTTP method (e.g., 'GET', 'POST')
-        excluded_paths: Configuration for excluded paths, can be:
-            - None: No paths excluded
-            - List[str]: List of path patterns to exclude for all methods
-            - Dict[str, List[str]]: Method-specific path patterns
+        path: The request path
+        method: The HTTP method
+        excluded_paths: Can be None, a list of patterns, or a dict with method-specific patterns
 
     Returns:
-        True if the path should be excluded, False otherwise
+        True if path should be excluded
 
     Examples:
         >>> # Exclude all methods
@@ -43,22 +35,19 @@ def should_exclude_path(
     if excluded_paths is None:
         return False
 
-    # Normalize path (remove query params if present)
+    # strip query params
     if '?' in path:
         path = path.split('?')[0]
 
-    # Handle list format - applies to all methods
     if isinstance(excluded_paths, list):
         return _match_path_patterns(path, excluded_paths)
 
-    # Handle dict format - method-specific patterns
     if isinstance(excluded_paths, dict):
-        # Check method-specific patterns
         method_patterns = excluded_paths.get(method.upper(), [])
         if _match_path_patterns(path, method_patterns):
             return True
 
-        # Check wildcard method patterns (applies to all methods)
+        # also check wildcard patterns
         all_patterns = excluded_paths.get('*', [])
         if _match_path_patterns(path, all_patterns):
             return True
@@ -67,27 +56,16 @@ def should_exclude_path(
 
 
 def _match_path_patterns(path: str, patterns: List[str]) -> bool:
-    """
-    Check if a path matches any of the given patterns.
-
-    Args:
-        path: The request path to check
-        patterns: List of patterns to match against
-
-    Returns:
-        True if the path matches any pattern, False otherwise
-    """
+    """Check if path matches any pattern."""
     for pattern in patterns:
-        # Handle exact matches
         if pattern == path:
             return True
 
-        # Handle wildcard patterns using fnmatch
-        if '*' in pattern or '?' in pattern:
-            if fnmatch.fnmatch(path, pattern):
-                return True
+        # wildcard matching
+        if ('*' in pattern or '?' in pattern) and fnmatch.fnmatch(path, pattern):
+            return True
 
-        # Handle path prefix matching (e.g., '/api/' matches '/api/anything')
+        # prefix matching
         if pattern.endswith('/') and path.startswith(pattern):
             return True
 

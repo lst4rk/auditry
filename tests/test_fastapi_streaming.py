@@ -1,4 +1,4 @@
-"""Tests for FastAPI streaming response handling."""
+"""FastAPI streaming tests."""
 
 import asyncio
 import json
@@ -12,44 +12,31 @@ from src.auditry.fastapi import create_middleware
 
 @pytest.fixture
 def app():
-    """Create a FastAPI app with auditry middleware."""
     app = FastAPI()
-
-    # Configure auditry
-    config = ObservabilityConfig(
-        service_name="test-fastapi-streaming",
-    )
-
-    # Apply auditry middleware
+    config = ObservabilityConfig(service_name="test-stream")
     app = create_middleware(app, config)
 
     @app.get("/stream")
     async def streaming_endpoint():
-        """Endpoint that returns streaming response."""
         async def generate():
             for i in range(3):
                 yield f"data: chunk {i}\n\n"
                 await asyncio.sleep(0.01)
-
         return StreamingResponse(generate(), media_type="text/event-stream")
 
     @app.get("/regular")
     async def regular_endpoint():
-        """Endpoint that returns regular JSON response."""
         return {"message": "Regular response", "data": [1, 2, 3]}
 
     @app.get("/large")
     async def large_endpoint():
-        """Endpoint that returns large JSON response."""
         return {"data": list(range(1000))}
 
     @app.get("/sync-stream")
     def sync_streaming_endpoint():
-        """Endpoint that returns synchronous streaming response."""
         def generate():
             for i in range(3):
                 yield f"data: sync chunk {i}\n\n"
-
         return StreamingResponse(generate(), media_type="text/event-stream")
 
     return app

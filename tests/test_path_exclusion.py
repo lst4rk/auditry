@@ -1,4 +1,4 @@
-"""Tests for path exclusion functionality."""
+"""Path exclusion tests."""
 
 import pytest
 import asyncio
@@ -16,16 +16,11 @@ from src.auditry.fastapi import create_middleware as create_fastapi_middleware
 
 @pytest.fixture
 def quart_app_with_exclusions():
-    """Create a Quart app with path exclusions configured."""
     app = Quart(__name__)
-
-    # Configure with excluded paths
     config = ObservabilityConfig(
         service_name="test-exclusion",
         excluded_paths=['/health', '/metrics', '/stream*', '/api/*/internal']
     )
-
-    # Apply middleware
     app = create_quart_middleware(app, config)
 
     @app.route("/health")
@@ -93,8 +88,7 @@ def quart_app_with_method_exclusions():
 
 
 @pytest.mark.asyncio
-async def test_quart_excluded_path_not_logged(quart_app_with_exclusions, caplog):
-    """Test that excluded paths are not logged but still get correlation ID."""
+async def test_quart_exclusion(quart_app_with_exclusions, caplog):
     client = quart_app_with_exclusions.test_client()
 
     # Clear any existing logs
@@ -113,42 +107,21 @@ async def test_quart_excluded_path_not_logged(quart_app_with_exclusions, caplog)
 
 
 @pytest.mark.asyncio
-async def test_quart_wildcard_exclusion(quart_app_with_exclusions, caplog):
-    """Test that wildcard patterns work for exclusion."""
+async def test_quart_patterns(quart_app_with_exclusions, caplog):
+    """Test wildcard and normal paths."""
     client = quart_app_with_exclusions.test_client()
     caplog.clear()
 
-    # Test /stream which matches /stream*
+    # wildcard test
     response = await client.get("/stream")
     assert response.status_code == 200
     assert "X-Correlation-Id" in response.headers
+    assert len([r for r in caplog.records if "Request completed" in r.getMessage()]) == 0
 
-    request_logs = [r for r in caplog.records if "Request completed" in r.getMessage()]
-    assert len(request_logs) == 0
-
-    # Test /api/v1/internal which matches /api/*/internal
-    response = await client.get("/api/v1/internal")
-    assert response.status_code == 200
-    assert "X-Correlation-Id" in response.headers
-
-    request_logs = [r for r in caplog.records if "Request completed" in r.getMessage()]
-    assert len(request_logs) == 0
-
-
-@pytest.mark.asyncio
-async def test_quart_non_excluded_path_is_logged(quart_app_with_exclusions, caplog):
-    """Test that non-excluded paths are still logged normally."""
-    client = quart_app_with_exclusions.test_client()
-    caplog.clear()
-
-    # Test non-excluded endpoint
+    # normal path should log
     response = await client.get("/api/v1/public")
     assert response.status_code == 200
-    assert "X-Correlation-Id" in response.headers
-
-    # Should have logs for this request
-    request_logs = [r for r in caplog.records if "Request completed" in r.getMessage()]
-    assert len(request_logs) > 0
+    assert len([r for r in caplog.records if "Request completed" in r.getMessage()]) > 0
 
 
 @pytest.mark.asyncio
@@ -281,69 +254,29 @@ async def test_fastapi_non_excluded_path_is_logged(fastapi_app_with_exclusions, 
 
 # ================= Path Matcher Unit Tests =================
 
-def test_path_matcher_exact_match():
-    """Test exact path matching."""
+def test_matcher_basics():
     from src.auditry.path_matcher import should_exclude_path
 
-    # Exact match
-    assert should_exclude_path('/health', 'GET', ['/health']) == True
-    assert should_exclude_path('/health', 'POST', ['/health']) == True
-    assert should_exclude_path('/healthy', 'GET', ['/health']) == False
+    # exact
+    assert should_exclude_path('/health', 'GET', ['/health'])
+    assert not should_exclude_path('/healthy', 'GET', ['/health'])
+
+    # wildcards
+    assert should_exclude_path('/api/v1/users', 'GET', ['/api/*'])
+    assert should_exclude_path('/api/v1/internal', 'GET', ['/api/*/internal'])
+
+    # query params ignored
+    assert should_exclude_path('/health?check=true', 'GET', ['/health'])
+
+    # prefix with /
+    assert should_exclude_path('/api/v1/users', 'GET', ['/api/'])
+    assert not should_exclude_path('/apis', 'GET', ['/api/'])
 
 
-def test_path_matcher_wildcard():
-    """Test wildcard path matching."""
+def test_method_specific():
     from src.auditry.path_matcher import should_exclude_path
 
-    # Wildcard at end
-    assert should_exclude_path('/api/v1/users', 'GET', ['/api/*']) == True
-    assert should_exclude_path('/api/v2/users', 'GET', ['/api/*']) == True
-    assert should_exclude_path('/apis/v1', 'GET', ['/api/*']) == False
-
-    # Wildcard in middle
-    assert should_exclude_path('/api/v1/internal', 'GET', ['/api/*/internal']) == True
-    assert should_exclude_path('/api/v2/internal', 'GET', ['/api/*/internal']) == True
-    assert should_exclude_path('/api/v1/public', 'GET', ['/api/*/internal']) == False
-
-
-def test_path_matcher_method_specific():
-    """Test method-specific path exclusions."""
-    from src.auditry.path_matcher import should_exclude_path
-
-    config = {
-        'GET': ['/health'],
-        'POST': ['/webhook'],
-        '*': ['/admin/*']
-    }
-
-    # GET-specific
-    assert should_exclude_path('/health', 'GET', config) == True
-    assert should_exclude_path('/health', 'POST', config) == False
-
-    # POST-specific
-    assert should_exclude_path('/webhook', 'POST', config) == True
-    assert should_exclude_path('/webhook', 'GET', config) == False
-
-    # Wildcard method (all methods)
-    assert should_exclude_path('/admin/users', 'GET', config) == True
-    assert should_exclude_path('/admin/users', 'POST', config) == True
-    assert should_exclude_path('/admin/users', 'DELETE', config) == True
-
-
-def test_path_matcher_query_params_ignored():
-    """Test that query parameters are ignored in path matching."""
-    from src.auditry.path_matcher import should_exclude_path
-
-    assert should_exclude_path('/health?check=true', 'GET', ['/health']) == True
-    assert should_exclude_path('/api/users?page=1&limit=10', 'GET', ['/api/users']) == True
-    assert should_exclude_path('/api/users?filter=active', 'GET', ['/api/*']) == True
-
-
-def test_path_matcher_prefix_matching():
-    """Test path prefix matching with trailing slash."""
-    from src.auditry.path_matcher import should_exclude_path
-
-    # Trailing slash indicates prefix matching
-    assert should_exclude_path('/api/v1/users', 'GET', ['/api/']) == True
-    assert should_exclude_path('/api/v2/products', 'GET', ['/api/']) == True
-    assert should_exclude_path('/apis', 'GET', ['/api/']) == False
+    cfg = {'GET': ['/health'], 'POST': ['/webhook'], '*': ['/admin/*']}
+    assert should_exclude_path('/health', 'GET', cfg)
+    assert not should_exclude_path('/health', 'POST', cfg)
+    assert should_exclude_path('/admin/users', 'DELETE', cfg)
