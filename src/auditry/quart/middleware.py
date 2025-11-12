@@ -13,6 +13,7 @@ from asgi_correlation_id import CorrelationIdMiddleware
 from ..core import BaseMiddleware, RequestResponseLogger
 from ..correlation import get_correlation_id
 from ..models import ObservabilityConfig
+from ..path_matcher import should_exclude_path
 from .adapters import QuartRequestAdapter, QuartResponseAdapter
 
 
@@ -67,9 +68,17 @@ class QuartMiddleware(BaseMiddleware):
         @self.app.before_request
         async def capture_request_start():
             """Capture request start time and initial data."""
+            # Check if this path is excluded from observability
+            if should_exclude_path(request.path, request.method, self.config.excluded_paths):
+                request.observability_excluded = True
+                # Still set correlation ID for excluded paths (useful for tracing)
+                request.observability_correlation_id = get_correlation_id()
+                return
+
             # Store timing and correlation data
             request.observability_start_time = time.time()
             request.observability_correlation_id = get_correlation_id()
+            request.observability_excluded = False
 
             # Pre-extract request data (especially body which needs caching)
             raw_request_data = await self.request_adapter.extract_all(request)
@@ -84,6 +93,14 @@ class QuartMiddleware(BaseMiddleware):
         @self.app.after_request
         async def log_request_response(response: Response) -> Response:
             """Log the request/response after processing."""
+            # Check if this path was excluded
+            if getattr(request, "observability_excluded", False):
+                # Still add correlation ID to response headers for excluded paths
+                correlation_id = getattr(request, "observability_correlation_id", None)
+                if correlation_id and self.config.correlation_id_header:
+                    response.headers[self.config.correlation_id_header] = correlation_id
+                return response
+
             # Check if we have request data (might not if before_request wasn't called)
             if not hasattr(request, "observability_start_time"):
                 return response
@@ -157,6 +174,10 @@ class QuartMiddleware(BaseMiddleware):
         @self.app.errorhandler(Exception)
         async def handle_exception(error: Exception):
             """Log errors with request context."""
+            # Check if this path was excluded
+            if getattr(request, "observability_excluded", False):
+                raise
+
             # Check if we have request data
             if hasattr(request, "observability_start_time"):
                 duration_ms = (time.time() - request.observability_start_time) * 1000
