@@ -363,6 +363,61 @@ config = ObservabilityConfig(
 ```
 
 When body logging is disabled, logs will show `[BODY_LOGGING_DISABLED]` instead of the actual content, while still logging metadata like headers, status codes, and timing information.
+
+### Excluding Paths
+
+Skip logging for specific endpoints like health checks or streaming:
+
+```python
+# Basic exclusion
+config = ObservabilityConfig(
+    service_name="my-service-name",
+    excluded_paths=[
+        '/health',           # Exact match
+        '/metrics',          # Exact match
+        '/stream*',          # Wildcard - matches /stream, /streaming, /stream/events
+        '/api/*/internal',   # Wildcard - matches /api/v1/internal, /api/v2/internal
+        '/admin/',           # Prefix - matches /admin/* (trailing slash indicates prefix)
+    ],
+)
+
+# Method-specific
+config = ObservabilityConfig(
+    service_name="my-service",
+    excluded_paths={
+        'GET': ['/health'],
+        'POST': ['/webhook/*'],
+        '*': ['/admin/*']  # all methods
+    }
+)
+```
+
+Useful for streaming endpoints that don't play nice with middleware:
+
+```python
+from quart import Quart, Response, stream_with_context
+from auditry import ObservabilityConfig
+from auditry.quart import create_middleware
+
+app = Quart(__name__)
+config = ObservabilityConfig(
+    service_name="stream-svc",
+    excluded_paths=['/stream/*']  # skip these
+)
+app = create_middleware(app, config)
+
+@app.route('/stream/data')
+async def stream_data():
+    # this won't be logged
+    @stream_with_context
+    async def generate():
+        for i in range(100):
+            yield f"data: {i}\n\n"
+    return Response(generate(), mimetype='text/event-stream')
+```
+
+Note: Excluded paths still get correlation IDs but no logging.
+
 ## Best Practices
 
 ### 1. Configure Logging Early

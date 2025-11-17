@@ -1,4 +1,4 @@
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Union
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -76,4 +76,13 @@ class ObservabilityConfig(BaseModel):
     log_response_body: bool = Field(
         default=True,
         description="Whether to log response bodies for the application"
+    )
+    excluded_paths: Optional[Union[List[str], Dict[str, List[str]]]] = Field(
+        default=None,
+        description=(
+            "Paths to exclude from observability middleware. "
+            "Can be a list of path patterns (e.g., ['/health', '/metrics', '/stream*']) "
+            "or a dict mapping HTTP methods to paths (e.g., {'GET': ['/health'], 'POST': ['/stream*']}). "
+            "Supports wildcards (*) for pattern matching."
+        )
     )

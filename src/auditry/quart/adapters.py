@@ -5,10 +5,11 @@ These adapters implement the abstract base classes to extract data from
 Quart request and response objects.
 """
 
-from typing import Any, Dict, Optional
 import json
+from typing import Dict, Optional
 
 from quart import Request, Response, g
+from quart.wrappers.response import IterableBody
 
 from ..core import BaseRequestAdapter, BaseResponseAdapter
 
@@ -133,12 +134,29 @@ class QuartResponseAdapter(BaseResponseAdapter):
         """
         Extract body from Quart response.
 
+        Returns None for streaming responses to avoid consuming the stream.
         Handles both Response objects and tuple returns.
         """
         try:
             # For Response objects
+            if hasattr(response, "response"):
+                # Check if the response is an IterableBody (streaming response)
+                if isinstance(response.response, IterableBody):
+                    # This is a streaming response, return None to avoid consuming it
+                    return None
+
+            # For Response objects with get_data method (non-streaming)
             if hasattr(response, "get_data"):
-                return await response.get_data()
+                # Only call get_data if we're sure it's not streaming
+                # Double-check for streaming response attribute
+                if hasattr(response, "response") and isinstance(response.response, IterableBody):
+                    return None
+
+                # Safe to get data for non-streaming responses
+                data = await response.get_data()
+                if isinstance(data, str):
+                    return data.encode("utf-8")
+                return data
 
             # For tuple responses (body, status_code, headers)
             if isinstance(response, tuple) and len(response) >= 1:

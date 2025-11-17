@@ -5,7 +5,8 @@ These adapters implement the abstract base classes to extract data from
 FastAPI/Starlette request and response objects.
 """
 
-from typing import Any, Dict, Optional
+import inspect
+from typing import Dict, Optional
 
 from fastapi import Request, Response
 from starlette.responses import StreamingResponse
@@ -103,6 +104,12 @@ class FastAPIResponseAdapter(BaseResponseAdapter):
         # Skip streaming responses
         if isinstance(response, StreamingResponse):
             return None
+
+        # Check if response has a body_iterator (generator/async generator)
+        if hasattr(response, "body_iterator"):
+            # Check if it's a generator or async generator
+            if inspect.isasyncgen(response.body_iterator) or inspect.isgenerator(response.body_iterator):
+                return None
 
         # Get body if available
         if hasattr(response, "body"):
