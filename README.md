@@ -460,8 +460,4 @@ Contributions welcome! Please submit a Pull Request.
 
 ## Support
 
-For issues and questions: [GitHub Issues](https://github.com/lst4rk/auditry/issues)
-
-## Author
-
-**Liv Stark** - [livstark.work@gmail.com](mailto:livstark.work@gmail.com)
+For issues and questions: [GitHub Issues](https://github.com/farsight-ai/auditry/issues)
