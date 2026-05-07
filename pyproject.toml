@@ -1,6 +1,6 @@
 [project]
 name = "auditry"
-version = "0.2.7"
+version = "0.3.0"
 description = "Observability middleware for FastAPI and Quart with request/response logging, correlation IDs, and sensitive data redaction"
 authors = [
     {name = "Liv Stark", email = "livstark.work@gmail.com"}
@@ -37,10 +37,14 @@ fastapi = [
 quart = [
     "quart>=0.18.0",
 ]
+sentry = [
+    "sentry-sdk>=1.40.0",
+]
 all = [
     "fastapi>=0.100.0",
     "starlette>=0.27.0",
     "quart>=0.18.0",
+    "sentry-sdk>=1.40.0",
 ]
 dev = [
     "pytest>=7.0.0",

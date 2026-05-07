@@ -27,11 +27,13 @@ Basic Usage:
     ```
 """
 
-from .logging_config import configure_logging, get_logger
 from .correlation import get_correlation_id
-from .models import ObservabilityConfig, BusinessEventConfig
+from .fastapi.exceptions import BaseAPIException, ErrorResponse, create_exception_handler
+from .logging_config import configure_logging, get_logger
+from .models import BusinessEventConfig, ObservabilityConfig
+from .sentry import configure_sentry
 
-__version__ = "0.2.7"
+__version__ = "0.3.0"
 
 __all__ = [
     # Configuration
@@ -42,4 +44,10 @@ __all__ = [
     "get_logger",
     # Utilities
     "get_correlation_id",
+    # Sentry
+    "configure_sentry",
+    # Error handling
+    "ErrorResponse",
+    "BaseAPIException",
+    "create_exception_handler",
 ]

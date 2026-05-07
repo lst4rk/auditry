@@ -20,7 +20,13 @@ pip install auditry[fastapi]
 pip install auditry[quart]
 ```
 
-### For both frameworks
+### For Sentry integration
+
+```bash
+pip install auditry[sentry]
+```
+
+### For everything
 
 ```bash
 pip install auditry[all]
@@ -99,9 +105,9 @@ config = ObservabilityConfig(
     # REQUIRED: Service name for log filtering (no default)
     service_name="my-service-name",
 
-    # Correlation ID header name (default: X-Correlation-ID)
-    # Use this if your org uses a different header, such as X-Request-ID
-    correlation_id_header="X-Correlation-ID",
+    # Request ID header name (default: X-Request-ID)
+    # Override if your org uses a different header
+    correlation_id_header="X-Request-ID",
 
     # Maximum request/response body size to log (default: 10KB)
     payload_size_limit=10_240,
@@ -136,13 +142,13 @@ from auditry.quart import create_middleware
 app = create_middleware(app, config)
 ```
 
-## Correlation IDs
+## Request / Correlation IDs
 
-Correlation IDs are automatically handled:
+Request IDs are automatically handled:
 
-- **Incoming requests**: Extracts from `X-Correlation-ID` header (or your custom header)
-- **Generated if missing**: Creates a new UUID if no correlation ID provided
-- **Added to response**: Returns the correlation ID in the response header
+- **Incoming requests**: Extracts from `X-Request-ID` header (or your custom header)
+- **Generated if missing**: Creates a new UUID if no request ID provided
+- **Added to response**: Returns the request ID in the response header
 - **Included in logs**: Automatically included in all structured logs
 
 ### Using Correlation IDs in Your Code
@@ -178,7 +184,7 @@ async def proxy_request():
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://downstream-service.com/api/data",
-            headers={"X-Correlation-ID": correlation_id}  # Use your org's header name
+            headers={"X-Request-ID": correlation_id}  # Use your org's header name
         )
 
     return response.json()
@@ -459,7 +465,7 @@ When calling downstream services, always pass the correlation ID:
 from auditry import get_correlation_id
 
 correlation_id = get_correlation_id()
-headers = {"X-Correlation-ID": correlation_id}  # Use your org's header name
+headers = {"X-Request-ID": correlation_id}  # Use your org's header name
 response = await client.get(url, headers=headers)
 ```
 
@@ -470,7 +476,7 @@ Match your org's conventions:
 ```python
 config = ObservabilityConfig(
     service_name="my-service-name",
-    correlation_id_header="X-Request-ID",  # If your org uses this header instead
+    correlation_id_header="X-Trace-ID",  # If your org uses a different header
     additional_redaction_patterns=["ssn", "tax_id"],  # Your sensitive fields
 )
 ```
@@ -504,6 +510,99 @@ config = ObservabilityConfig(
   "execution_duration_ms": 12.34
 }
 ```
+
+## Sentry Integration
+
+auditry provides a helper to configure Sentry with distributed tracing and automatic request ID tagging:
+
+```python
+from auditry import configure_sentry
+
+configure_sentry(
+    dsn="https://examplePublicKey@o0.ingest.sentry.io/0",
+    environment="prod",
+    traces_sample_rate=0.2,
+)
+```
+
+Every Sentry event will automatically include the current `request_id` as a tag, making it easy to correlate errors with specific requests across services.
+
+Install the optional dependency:
+
+```bash
+pip install auditry[sentry]
+```
+
+## Standardized Error Handling
+
+Use `create_exception_handler()` to add consistent JSON error responses to your FastAPI app:
+
+```python
+from fastapi import FastAPI
+from auditry.fastapi import create_middleware, create_exception_handler
+from auditry import ObservabilityConfig
+
+app = FastAPI()
+app = create_middleware(app, config=ObservabilityConfig(service_name="my-svc"))
+
+# Define custom exception mappings
+class TokenExpired(Exception): pass
+class DomainError(Exception): pass
+
+handler = create_exception_handler(
+    exception_mapping={
+        TokenExpired: (401, "AuthenticationError"),
+        DomainError: (400, "DomainError"),
+    },
+    include_traceback_in=["local", "dev"],  # Only in non-prod environments
+)
+app.add_exception_handler(Exception, handler)
+```
+
+All error responses follow a standard shape:
+
+```json
+{
+  "error_type": "DomainError",
+  "message": "Invalid input provided",
+  "request_id": "550e8400-e29b-41d4-a716-446655440000",
+  "path": "/api/resource",
+  "status_code": 400
+}
+```
+
+You can also subclass `BaseAPIException` for exceptions that carry their own status code and error type:
+
+```python
+from auditry.fastapi import BaseAPIException
+
+class NotFoundError(BaseAPIException):
+    def __init__(self, resource: str):
+        super().__init__(detail=f"{resource} not found", status_code=404, error_type="NotFound")
+```
+
+## Migration Guide: 0.2.x to 0.3.0
+
+### Breaking Changes
+
+1. **Default header changed from `X-Correlation-ID` to `X-Request-ID`**
+
+   If your services rely on the previous default, explicitly set the old header:
+
+   ```python
+   config = ObservabilityConfig(
+       service_name="my-service",
+       correlation_id_header="X-Correlation-ID",  # Preserve old behavior
+   )
+   ```
+
+   If your downstream services also use auditry, update them all at once or pin the header name during the transition.
+
+### New Features
+
+- **`configure_sentry()`** — One-call Sentry setup with request ID tagging and distributed tracing. Requires `pip install auditry[sentry]`.
+- **`create_exception_handler()`** — Factory for standardized JSON error responses with optional traceback in dev environments.
+- **`ErrorResponse`** / **`BaseAPIException`** — Pydantic model and base exception class for consistent error handling.
 
 ## License
 
