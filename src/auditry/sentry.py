@@ -2,6 +2,8 @@
 
 from typing import Optional
 
+from .correlation import get_correlation_id
+
 
 def configure_sentry(
     dsn: Optional[str],
@@ -27,8 +29,6 @@ def configure_sentry(
         return
 
     import sentry_sdk
-
-    from .correlation import get_correlation_id
 
     def before_send(event, hint):
         """Attach request_id to every Sentry event."""

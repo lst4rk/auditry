@@ -587,16 +587,14 @@ class NotFoundError(BaseAPIException):
 
 1. **Default header changed from `X-Correlation-ID` to `X-Request-ID`**
 
-   If your services rely on the previous default, explicitly set the old header:
+   All services should upgrade to 0.3.0 together so they consistently use `X-Request-ID`. If you need to do a phased rollout, you can temporarily pin the old header on already-upgraded services:
 
    ```python
    config = ObservabilityConfig(
        service_name="my-service",
-       correlation_id_header="X-Correlation-ID",  # Preserve old behavior
+       correlation_id_header="X-Correlation-ID",  # Temporary: remove once all services are on 0.3.0
    )
    ```
-
-   If your downstream services also use auditry, update them all at once or pin the header name during the transition.
 
 ### New Features
 
