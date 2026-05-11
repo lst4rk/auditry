@@ -1,7 +1,7 @@
 """
 Auditry - Observability middleware for Python web frameworks.
 
-This package provides comprehensive request/response logging, correlation ID tracking,
+This package provides comprehensive request/response logging, request ID tracking,
 business event extraction, and sensitive data redaction for FastAPI and Quart applications.
 
 Basic Usage:
@@ -28,10 +28,8 @@ Basic Usage:
 """
 
 from .correlation import get_correlation_id
-from .fastapi.exceptions import BaseAPIException, ErrorResponse, create_exception_handler
 from .logging_config import configure_logging, get_logger
 from .models import BusinessEventConfig, ObservabilityConfig
-from .sentry import configure_sentry
 
 __version__ = "0.3.0"
 
@@ -44,10 +42,4 @@ __all__ = [
     "get_logger",
     # Utilities
     "get_correlation_id",
-    # Sentry
-    "configure_sentry",
-    # Error handling
-    "ErrorResponse",
-    "BaseAPIException",
-    "create_exception_handler",
 ]

@@ -20,12 +20,6 @@ pip install auditry[fastapi]
 pip install auditry[quart]
 ```
 
-### For Sentry integration
-
-```bash
-pip install auditry[sentry]
-```
-
 ### For everything
 
 ```bash
@@ -511,92 +505,6 @@ config = ObservabilityConfig(
 }
 ```
 
-## Sentry Integration
-
-auditry provides a helper to configure Sentry with distributed tracing and automatic request ID tagging:
-
-```python
-from auditry import configure_sentry
-
-configure_sentry(
-    dsn="https://examplePublicKey@o0.ingest.sentry.io/0",
-    environment="prod",
-    traces_sample_rate=0.2,
-)
-```
-
-Every Sentry event will automatically include the current `request_id` as a tag, making it easy to correlate errors with specific requests across services.
-
-Install the optional dependency:
-
-```bash
-pip install auditry[sentry]
-```
-
-## Standardized Error Handling
-
-`auditry` follows the same error envelope contract used by `chat-gateway` so services can standardize client behavior and observability across repos.
-
-Use `create_exception_handler()` to add consistent JSON error responses to your FastAPI app:
-
-```python
-from fastapi import FastAPI
-from auditry.fastapi import create_middleware, create_exception_handler
-from auditry import ObservabilityConfig
-
-app = FastAPI()
-app = create_middleware(app, config=ObservabilityConfig(service_name="my-svc"))
-
-# Define custom exception mappings
-class TokenExpired(Exception): pass
-class DomainError(Exception): pass
-
-handler = create_exception_handler(
-    exception_mapping={
-        TokenExpired: (401, "auth.token_expired", "auth", False),
-        DomainError: (400, "domain.invalid_input", "validation", False),
-    },
-    include_traceback_in=["local", "dev"],  # Only in non-prod environments
-)
-app.add_exception_handler(Exception, handler)
-```
-
-All error responses follow a standard shape:
-
-```json
-{
-  "detail": "Invalid input provided",
-  "error": {
-    "code": "domain.invalid_input",
-    "message": "Invalid input provided",
-    "category": "validation",
-    "context": {
-      "request_id": "550e8400-e29b-41d4-a716-446655440000",
-      "path": "/api/resource",
-      "status_code": 400
-    },
-    "retryable": false
-  }
-}
-```
-
-You can also subclass `BaseAPIException` for exceptions that carry their own status code and error type:
-
-```python
-from auditry.fastapi import BaseAPIException
-
-class NotFoundError(BaseAPIException):
-    def __init__(self, resource: str):
-        super().__init__(
-            detail=f"{resource} not found",
-            status_code=404,
-            error_type="resource.not_found",
-            category="not_found",
-            context={"resource": resource},
-            retryable=False,
-        )
-```
-
 ## Migration Guide: 0.2.x to 0.3.0
 
 ### Breaking Changes
@@ -614,9 +522,8 @@ class NotFoundError(BaseAPIException):
 
 ### New Features
 
-- **`configure_sentry()`** — One-call Sentry setup with request ID tagging and distributed tracing. Requires `pip install auditry[sentry]`.
-- **`create_exception_handler()`** — Factory for standardized JSON error responses with optional traceback in dev environments.
-- **`ErrorResponse`** / **`BaseAPIException`** — Pydantic model and base exception class for consistent error handling.
+- **Streaming-friendly middleware** — Safer handling of streaming responses so large bodies are not buffered for logging when not appropriate.
+- **`excluded_paths`** — Skip request/response logging for configured paths (for example health checks or long-lived streams) while still attaching the request ID header.
 
 ## License
 
