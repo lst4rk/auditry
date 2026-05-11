@@ -535,6 +535,8 @@ pip install auditry[sentry]
 
 ## Standardized Error Handling
 
+`auditry` follows the same error envelope contract used by `chat-gateway` so services can standardize client behavior and observability across repos.
+
 Use `create_exception_handler()` to add consistent JSON error responses to your FastAPI app:
 
 ```python
@@ -551,8 +553,8 @@ class DomainError(Exception): pass
 
 handler = create_exception_handler(
     exception_mapping={
-        TokenExpired: (401, "AuthenticationError"),
-        DomainError: (400, "DomainError"),
+        TokenExpired: (401, "auth.token_expired", "auth", False),
+        DomainError: (400, "domain.invalid_input", "validation", False),
     },
     include_traceback_in=["local", "dev"],  # Only in non-prod environments
 )
@@ -563,11 +565,18 @@ All error responses follow a standard shape:
 
 ```json
 {
-  "error_type": "DomainError",
-  "message": "Invalid input provided",
-  "request_id": "550e8400-e29b-41d4-a716-446655440000",
-  "path": "/api/resource",
-  "status_code": 400
+  "detail": "Invalid input provided",
+  "error": {
+    "code": "domain.invalid_input",
+    "message": "Invalid input provided",
+    "category": "validation",
+    "context": {
+      "request_id": "550e8400-e29b-41d4-a716-446655440000",
+      "path": "/api/resource",
+      "status_code": 400
+    },
+    "retryable": false
+  }
 }
 ```
 
@@ -578,7 +587,14 @@ from auditry.fastapi import BaseAPIException
 
 class NotFoundError(BaseAPIException):
     def __init__(self, resource: str):
-        super().__init__(detail=f"{resource} not found", status_code=404, error_type="NotFound")
+        super().__init__(
+            detail=f"{resource} not found",
+            status_code=404,
+            error_type="resource.not_found",
+            category="not_found",
+            context={"resource": resource},
+            retryable=False,
+        )
 ```
 
 ## Migration Guide: 0.2.x to 0.3.0

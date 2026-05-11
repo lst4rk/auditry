@@ -1,7 +1,7 @@
 """Sentry integration helpers for standardized distributed tracing."""
 
+import sentry_sdk
 from typing import Optional
-
 from .correlation import get_correlation_id
 
 
@@ -27,8 +27,6 @@ def configure_sentry(
     """
     if not dsn:
         return
-
-    import sentry_sdk
 
     def before_send(event, hint):
         """Attach request_id to every Sentry event."""
