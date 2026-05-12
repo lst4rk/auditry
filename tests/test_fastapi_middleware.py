@@ -1,5 +1,6 @@
 """Basic tests for FastAPI middleware functionality."""
 
+from subprocess import CREATE_NEW_CONSOLE
 from unittest.mock import patch
 
 import pytest
@@ -12,17 +13,13 @@ from auditry.fastapi import create_middleware
 from auditry.models import BusinessEventConfig
 
 configure_logging(level="INFO")
-
-
+print("HELLO HELLO HELLOOOOOOOO")
 
 
 def test_correlation_id_in_response():
     """Test that correlation ID is added to response headers."""
     app = FastAPI()
-    app = create_middleware(
-        app,
-        config=ObservabilityConfig(service_name="test-service")
-    )
+    app = create_middleware(app, config=ObservabilityConfig(service_name="test-service"))
 
     @app.get("/test")
     def test_route():
@@ -62,7 +59,9 @@ def test_response_body_logged_when_enabled():
     assert body["greeting"] == "world"
 
 
-@pytest.mark.skip(reason="Streaming + ASGI request-body buffering deadlocks TestClient (pre-existing)")
+@pytest.mark.skip(
+    reason="Streaming + ASGI request-body buffering deadlocks TestClient (pre-existing)"
+)
 def test_response_body_none_for_streaming():
     """Streaming (text/event-stream) response body is not buffered."""
     app = FastAPI()
@@ -78,6 +77,7 @@ def test_response_body_none_for_streaming():
     def stream():
         def generate():
             yield "data: hello\n\n"
+
         return StreamingResponse(generate(), media_type="text/event-stream")
 
     logged_response = {}
