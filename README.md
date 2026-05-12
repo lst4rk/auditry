@@ -20,7 +20,7 @@ pip install auditry[fastapi]
 pip install auditry[quart]
 ```
 
-### For both frameworks
+### For everything
 
 ```bash
 pip install auditry[all]
@@ -99,9 +99,9 @@ config = ObservabilityConfig(
     # REQUIRED: Service name for log filtering (no default)
     service_name="my-service-name",
 
-    # Correlation ID header name (default: X-Correlation-ID)
-    # Use this if your org uses a different header, such as X-Request-ID
-    correlation_id_header="X-Correlation-ID",
+    # Request ID header name (default: X-Request-ID)
+    # Override if your org uses a different header
+    correlation_id_header="X-Request-ID",
 
     # Maximum request/response body size to log (default: 10KB)
     payload_size_limit=10_240,
@@ -136,13 +136,13 @@ from auditry.quart import create_middleware
 app = create_middleware(app, config)
 ```
 
-## Correlation IDs
+## Request / Correlation IDs
 
-Correlation IDs are automatically handled:
+Request IDs are automatically handled:
 
-- **Incoming requests**: Extracts from `X-Correlation-ID` header (or your custom header)
-- **Generated if missing**: Creates a new UUID if no correlation ID provided
-- **Added to response**: Returns the correlation ID in the response header
+- **Incoming requests**: Extracts from `X-Request-ID` header (or your custom header)
+- **Generated if missing**: Creates a new UUID if no request ID provided
+- **Added to response**: Returns the request ID in the response header
 - **Included in logs**: Automatically included in all structured logs
 
 ### Using Correlation IDs in Your Code
@@ -178,7 +178,7 @@ async def proxy_request():
     async with httpx.AsyncClient() as client:
         response = await client.get(
             "https://downstream-service.com/api/data",
-            headers={"X-Correlation-ID": correlation_id}  # Use your org's header name
+            headers={"X-Request-ID": correlation_id}  # Use your org's header name
         )
 
     return response.json()
@@ -459,7 +459,7 @@ When calling downstream services, always pass the correlation ID:
 from auditry import get_correlation_id
 
 correlation_id = get_correlation_id()
-headers = {"X-Correlation-ID": correlation_id}  # Use your org's header name
+headers = {"X-Request-ID": correlation_id}  # Use your org's header name
 response = await client.get(url, headers=headers)
 ```
 
@@ -470,7 +470,7 @@ Match your org's conventions:
 ```python
 config = ObservabilityConfig(
     service_name="my-service-name",
-    correlation_id_header="X-Request-ID",  # If your org uses this header instead
+    correlation_id_header="X-Trace-ID",  # If your org uses a different header
     additional_redaction_patterns=["ssn", "tax_id"],  # Your sensitive fields
 )
 ```
@@ -504,6 +504,26 @@ config = ObservabilityConfig(
   "execution_duration_ms": 12.34
 }
 ```
+
+## Migration Guide: 0.2.x to 0.3.0
+
+### Breaking Changes
+
+1. **Default header changed from `X-Correlation-ID` to `X-Request-ID`**
+
+   All services should upgrade to 0.3.0 together so they consistently use `X-Request-ID`. If you need to do a phased rollout, you can temporarily pin the old header on already-upgraded services:
+
+   ```python
+   config = ObservabilityConfig(
+       service_name="my-service",
+       correlation_id_header="X-Correlation-ID",  # Temporary: remove once all services are on 0.3.0
+   )
+   ```
+
+### New Features
+
+- **Streaming-friendly middleware** — Safer handling of streaming responses so large bodies are not buffered for logging when not appropriate.
+- **`excluded_paths`** — Skip request/response logging for configured paths (for example health checks or long-lived streams) while still attaching the request ID header.
 
 ## License
 

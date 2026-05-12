@@ -1,7 +1,7 @@
 """
 Auditry - Observability middleware for Python web frameworks.
 
-This package provides comprehensive request/response logging, correlation ID tracking,
+This package provides comprehensive request/response logging, request ID tracking,
 business event extraction, and sensitive data redaction for FastAPI and Quart applications.
 
 Basic Usage:
@@ -27,11 +27,11 @@ Basic Usage:
     ```
 """
 
-from .logging_config import configure_logging, get_logger
 from .correlation import get_correlation_id
-from .models import ObservabilityConfig, BusinessEventConfig
+from .logging_config import configure_logging, get_logger
+from .models import BusinessEventConfig, ObservabilityConfig
 
-__version__ = "0.2.7"
+__version__ = "0.3.0"
 
 __all__ = [
     # Configuration

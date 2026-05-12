@@ -39,8 +39,8 @@ class ObservabilityConfig(BaseModel):
         description="Name of the service for logging context (e.g., 'vault-api', 'auth-service')"
     )
     correlation_id_header: str = Field(
-        default="X-Correlation-ID",
-        description="HTTP header name for correlation ID (default: X-Correlation-ID)",
+        default="X-Request-ID",
+        description="HTTP header name for correlation/request ID (default: X-Request-ID)",
     )
 
     @field_validator("service_name")
