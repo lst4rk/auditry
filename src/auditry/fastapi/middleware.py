@@ -2,14 +2,14 @@
 
 import time
 
-from fastapi import Request
 from asgi_correlation_id import CorrelationIdMiddleware
+from fastapi import Request
 
+from ..core.logger import RequestResponseLogger
 from ..correlation import get_correlation_id
 from ..models import ObservabilityConfig
 from ..path_matcher import should_exclude_path
 from .adapters import FastAPIRequestAdapter, FastAPIResponseAdapter
-from ..core.logger import RequestResponseLogger
 
 
 class FastAPIMiddleware:
@@ -90,8 +90,12 @@ class FastAPIMiddleware:
 
         # Capture response info
         response_info = {"status": None, "headers": {}}
+        response_body_chunks: list[bytes] = []
+        is_streaming = False
 
         async def capture_response(message):
+            nonlocal is_streaming
+
             if message["type"] == "http.response.start":
                 response_info["status"] = message["status"]
 
@@ -99,11 +103,21 @@ class FastAPIMiddleware:
                 for name, value in message.get("headers", []):
                     response_info["headers"][name.decode().lower()] = value.decode()
 
+                # Detect streaming responses by content-type
+                content_type = response_info["headers"].get("content-type", "")
+                if "text/event-stream" in content_type:
+                    is_streaming = True
+
                 # Add correlation ID to response
                 if correlation_id and self.config.correlation_id_header:
                     headers = list(message.get("headers", []))
                     headers.append((self.config.correlation_id_header.encode(), correlation_id.encode()))
                     message["headers"] = headers
+
+            elif message["type"] == "http.response.body" and not is_streaming:
+                body = message.get("body", b"")
+                if body:
+                    response_body_chunks.append(body)
 
             await send(message)
 
@@ -115,13 +129,18 @@ class FastAPIMiddleware:
             duration_ms = (time.time() - start_time) * 1000
             user_id = await self.request_adapter.extract_user_id(request)
 
+            response_body = b"".join(response_body_chunks) if response_body_chunks else None
+
+            raw_response_data = {
+                "status_code": response_info["status"],
+                "headers": response_info["headers"],
+                "body": response_body,
+            }
+            response_data = self.logger.prepare_response_data(raw_response_data)
+
             self.logger.log_success(
                 request_data=request_data,
-                response_data={
-                    "status_code": response_info["status"],
-                    "headers": response_info["headers"],
-                    "body": None,  # No response buffering for streaming
-                },
+                response_data=response_data,
                 duration_ms=duration_ms,
                 correlation_id=correlation_id,
                 user_id=user_id,
