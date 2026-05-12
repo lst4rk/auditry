@@ -28,4 +28,4 @@ def test_correlation_id_in_response():
 
     client = TestClient(app)
     response = client.get("/test")
-    assert "X-Correlation-ID" in response.headers
+    assert "X-Request-ID" in response.headers
