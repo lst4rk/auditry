@@ -36,8 +36,13 @@ class FastAPIMiddleware:
 
         # Handle excluded paths - just add correlation ID
         if should_exclude_path(path, method, self.config.excluded_paths):
+            excluded_start_time = time.time()
+            excluded_response_started = False
+
             async def add_correlation_header(message):
+                nonlocal excluded_response_started
                 if message["type"] == "http.response.start":
+                    excluded_response_started = True
                     corr_id = get_correlation_id()
                     if corr_id and self.config.correlation_id_header:
                         headers = list(message.get("headers", []))
@@ -45,7 +50,26 @@ class FastAPIMiddleware:
                         message["headers"] = headers
                 await send(message)
 
-            await self.app(scope, receive, add_correlation_header)
+            try:
+                await self.app(scope, receive, add_correlation_header)
+            except Exception as error:
+                # Exception mappings still apply on excluded paths — exclusion
+                # skips request/response logging, not response shaping.
+                mapping = None
+                if not excluded_response_started:
+                    mapping = resolve_exception_mapping(error, self.config.exception_mappings)
+                if mapping is None:
+                    raise
+
+                self.logger.log_handled_error(
+                    request_data={"method": method, "path": path},
+                    error=error,
+                    mapping=mapping,
+                    duration_ms=(time.time() - excluded_start_time) * 1000,
+                    correlation_id=get_correlation_id(),
+                )
+                response = JSONResponse(mapping.body, status_code=mapping.status_code)
+                await response(scope, receive, add_correlation_header)
             return
 
         # Buffer the request body for logging

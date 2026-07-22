@@ -181,6 +181,39 @@ async def test_fastapi_no_mapped_response_after_response_started():
 # ---------------------------------------------------------------------------
 
 
+def test_fastapi_mapped_exception_on_excluded_path():
+    """Exclusion skips logging, not response shaping."""
+    config = _config(excluded_paths=["/mapped"])
+    response = _fastapi_client(config).get("/mapped")
+
+    assert response.status_code == 503
+    assert response.json() == SERVICE_UNAVAILABLE_BODY
+    assert "X-Request-ID" in response.headers
+
+
+def test_fastapi_unmapped_exception_on_excluded_path_propagates():
+    config = _config(excluded_paths=["/unmapped"])
+    response = _fastapi_client(config).get("/unmapped")
+    assert response.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_quart_mapped_exception_on_excluded_path():
+    app = Quart(__name__)
+    app = create_quart_middleware(app, config=_config(excluded_paths=["/mapped"]))
+
+    @app.route("/mapped")
+    async def mapped():
+        raise TimeoutError("QueuePool limit reached, connection timed out")
+
+    client = app.test_client()
+    response = await client.get("/mapped")
+
+    assert response.status_code == 503
+    assert await response.get_json() == SERVICE_UNAVAILABLE_BODY
+    assert "X-Request-ID" in response.headers
+
+
 @pytest.mark.asyncio
 async def test_quart_mapped_exception_returns_configured_response():
     app = Quart(__name__)

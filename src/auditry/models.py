@@ -115,6 +115,7 @@ class ObservabilityConfig(BaseModel):
         description=(
             "Ordered exception→response mappings handled at the middleware layer. "
             "First isinstance match wins; unmatched exceptions are logged as errors "
-            "and re-raised as before. Not applied on excluded_paths."
+            "and re-raised as before. Applies on excluded_paths too (exclusion "
+            "skips logging, not response shaping)."
         ),
     )

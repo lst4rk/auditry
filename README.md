@@ -464,7 +464,9 @@ Details:
   catches the pool timeout even when it arrives wrapped.
 - **Streaming-safe.** If the response has already started, the middleware
   re-raises instead of attempting a second response.
-- **Excluded paths are not mapped** — observability is fully bypassed there.
+- **Excluded paths are still mapped.** Path exclusion skips request/response
+  logging, not response shaping — a mapped exception on an excluded path still
+  returns its configured response (with a minimal handled-failure log line).
 - Works identically for FastAPI and Quart middlewares.
 
 ## Best Practices

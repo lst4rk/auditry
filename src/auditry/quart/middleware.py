@@ -45,6 +45,8 @@ class QuartMiddleware(BaseMiddleware):
             if should_exclude_path(request.path, request.method, self.config.excluded_paths):
                 setattr(request, 'observability_excluded', True)
                 setattr(request, 'observability_correlation_id', get_correlation_id())
+                # Kept for exception-mapping duration on excluded paths
+                setattr(request, 'observability_start_time', time.time())
                 return
 
             request.observability_start_time = time.time()
@@ -144,13 +146,24 @@ class QuartMiddleware(BaseMiddleware):
         @self.app.errorhandler(Exception)
         async def handle_exception(error: Exception):
             """Log errors with request context."""
-            # Check if this path was excluded
-            if getattr(request, "observability_excluded", False):
-                raise
-
             # Configured exception mapping: return a clean, handled response
             # instead of re-raising.
             mapping = resolve_exception_mapping(error, self.config.exception_mappings)
+
+            # Excluded paths: exclusion skips request/response logging, not
+            # response shaping — mapped exceptions still get their response.
+            if getattr(request, "observability_excluded", False):
+                if mapping is None:
+                    raise
+                start_time = getattr(request, "observability_start_time", None)
+                self.logger.log_handled_error(
+                    request_data={"method": request.method, "path": request.path},
+                    error=error,
+                    mapping=mapping,
+                    duration_ms=(time.time() - start_time) * 1000 if start_time else 0.0,
+                    correlation_id=getattr(request, "observability_correlation_id", None),
+                )
+                return mapping.body, mapping.status_code
 
             # Check if we have request data
             if hasattr(request, "observability_start_time"):
