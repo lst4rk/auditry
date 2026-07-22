@@ -418,6 +418,55 @@ async def stream_data():
 
 Note: Excluded paths still get correlation IDs but no logging.
 
+### Exception Mapping (Handled Error Responses)
+
+Turn known infrastructure failures into clean, handled HTTP responses at the
+middleware layer — instead of unhandled exceptions (or exception groups) that
+surface as 500s and force services to register framework-level exception
+handlers that bypass auditry's logging.
+
+Each mapping pairs an exception type with a response and a log level. The first
+`isinstance` match wins (subclasses match), the configured JSON body is returned
+with the configured status code, and the failure is logged at the configured
+level instead of `error`. Unmatched exceptions are logged and re-raised exactly
+as before.
+
+```python
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
+from auditry import ExceptionMapping, ObservabilityConfig
+
+config = ObservabilityConfig(
+    service_name="my-service",
+    exception_mappings=[
+        # DB pool-checkout timeout → clean retryable 503 (logged as warning)
+        ExceptionMapping(
+            exception_type=SQLAlchemyTimeoutError,
+            status_code=503,
+            body={
+                "error": {
+                    "code": "service.unavailable",
+                    "category": "integration",
+                    "retryable": True,
+                    "message": "Service temporarily unavailable, please retry",
+                }
+            },
+            log_level="warning",
+        ),
+    ],
+)
+```
+
+Details:
+
+- **Exception groups are unwrapped.** anyio task groups (Starlette, async
+  SQLAlchemy) wrap the real exception in an `ExceptionGroup`; single-leaf
+  groups are recursively unwrapped before matching, so the mapping above
+  catches the pool timeout even when it arrives wrapped.
+- **Streaming-safe.** If the response has already started, the middleware
+  re-raises instead of attempting a second response.
+- **Excluded paths are not mapped** — observability is fully bypassed there.
+- Works identically for FastAPI and Quart middlewares.
+
 ## Best Practices
 
 ### 1. Configure Logging Early

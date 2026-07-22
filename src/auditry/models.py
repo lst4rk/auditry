@@ -1,4 +1,4 @@
-from typing import Optional, Dict, List, Union
+from typing import Any, Dict, List, Literal, Optional, Type, Union
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -23,6 +23,30 @@ class BusinessEventConfig(BaseModel):
     extract_from_path: Optional[List[str]] = Field(
         default=None,
         description="Path parameter names to extract (e.g., ['folder_id'] for /folders/{folder_id})"
+    )
+
+
+class ExceptionMapping(BaseModel):
+    """
+    Map an exception type to a handled HTTP response and log level.
+
+    Matching exceptions are returned as the configured response by the
+    middleware instead of re-raising. See README "Exception Mapping".
+    """
+
+    exception_type: Type[BaseException] = Field(
+        description="Exception class to match (subclasses match via isinstance)"
+    )
+    status_code: int = Field(
+        ge=100, le=599,
+        description="HTTP status code for the mapped response"
+    )
+    body: Dict[str, Any] = Field(
+        description="JSON body returned as the mapped response"
+    )
+    log_level: Literal["debug", "info", "warning", "error", "critical"] = Field(
+        default="warning",
+        description="Log level for the handled failure",
     )
 
 
@@ -85,4 +109,12 @@ class ObservabilityConfig(BaseModel):
             "or a dict mapping HTTP methods to paths (e.g., {'GET': ['/health'], 'POST': ['/stream*']}). "
             "Supports wildcards (*) for pattern matching."
         )
+    )
+    exception_mappings: Optional[List[ExceptionMapping]] = Field(
+        default=None,
+        description=(
+            "Ordered exception→response mappings handled at the middleware layer. "
+            "First isinstance match wins; unmatched exceptions are logged as errors "
+            "and re-raised as before. Not applied on excluded_paths."
+        ),
     )

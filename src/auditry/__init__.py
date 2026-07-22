@@ -29,14 +29,15 @@ Basic Usage:
 
 from .correlation import get_correlation_id
 from .logging_config import configure_logging, get_logger
-from .models import BusinessEventConfig, ObservabilityConfig
+from .models import BusinessEventConfig, ExceptionMapping, ObservabilityConfig
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 __all__ = [
     # Configuration
     "ObservabilityConfig",
     "BusinessEventConfig",
+    "ExceptionMapping",
     # Logging
     "configure_logging",
     "get_logger",

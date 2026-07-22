@@ -4,7 +4,9 @@ import time
 
 from asgi_correlation_id import CorrelationIdMiddleware
 from fastapi import Request
+from fastapi.responses import JSONResponse
 
+from ..core.exceptions import resolve_exception_mapping
 from ..core.logger import RequestResponseLogger
 from ..correlation import get_correlation_id
 from ..models import ObservabilityConfig
@@ -147,10 +149,32 @@ class FastAPIMiddleware:
             )
 
         except Exception as error:
-            # Log error
             duration_ms = (time.time() - start_time) * 1000
             user_id = await self.request_adapter.extract_user_id(request)
 
+            # Configured exception mapping: return a clean, handled response
+            # instead of re-raising. Only possible if the response hasn't
+            # started yet (mid-stream failures must propagate).
+            mapping = None
+            if response_info["status"] is None:
+                mapping = resolve_exception_mapping(error, self.config.exception_mappings)
+
+            if mapping is not None:
+                self.logger.log_handled_error(
+                    request_data=request_data,
+                    error=error,
+                    mapping=mapping,
+                    duration_ms=duration_ms,
+                    correlation_id=correlation_id,
+                    user_id=user_id,
+                )
+                # Emit via capture_response so the correlation header is
+                # injected by the existing path.
+                response = JSONResponse(mapping.body, status_code=mapping.status_code)
+                await response(scope, replay_body, capture_response)
+                return
+
+            # Log error
             self.logger.log_error(
                 request_data=request_data,
                 error=error,

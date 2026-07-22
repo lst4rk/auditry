@@ -6,6 +6,7 @@ from quart.wrappers.response import IterableBody
 from asgi_correlation_id import CorrelationIdMiddleware
 
 from ..core import BaseMiddleware, RequestResponseLogger
+from ..core.exceptions import resolve_exception_mapping
 from ..correlation import get_correlation_id
 from ..models import ObservabilityConfig
 from ..path_matcher import should_exclude_path
@@ -147,6 +148,10 @@ class QuartMiddleware(BaseMiddleware):
             if getattr(request, "observability_excluded", False):
                 raise
 
+            # Configured exception mapping: return a clean, handled response
+            # instead of re-raising.
+            mapping = resolve_exception_mapping(error, self.config.exception_mappings)
+
             # Check if we have request data
             if hasattr(request, "observability_start_time"):
                 duration_ms = (time.time() - request.observability_start_time) * 1000
@@ -156,17 +161,35 @@ class QuartMiddleware(BaseMiddleware):
                 # Get user_id if available
                 user_id = await self.request_adapter.extract_user_id(request)
 
-                # Log the error
-                self.logger.log_error(
-                    request_data=request_data,
-                    error=error,
-                    duration_ms=duration_ms,
-                    correlation_id=correlation_id,
-                    user_id=user_id,
-                )
+                if mapping is not None:
+                    # Log the handled failure at the configured level
+                    self.logger.log_handled_error(
+                        request_data=request_data,
+                        error=error,
+                        mapping=mapping,
+                        duration_ms=duration_ms,
+                        correlation_id=correlation_id,
+                        user_id=user_id,
+                    )
+                else:
+                    # Log the error
+                    self.logger.log_error(
+                        request_data=request_data,
+                        error=error,
+                        duration_ms=duration_ms,
+                        correlation_id=correlation_id,
+                        user_id=user_id,
+                    )
 
                 # Clear cache
                 self.request_adapter.clear_cache(request)
+
+            if mapping is not None:
+                # Mark excluded so the after_request hook adds the correlation
+                # header via its existing path without logging this response a
+                # second time. Quart jsonifies the dict return.
+                request.observability_excluded = True
+                return mapping.body, mapping.status_code
 
             # Re-raise for Quart's error handlers
             raise
