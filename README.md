@@ -464,9 +464,12 @@ Details:
   catches the pool timeout even when it arrives wrapped.
 - **Streaming-safe.** If the response has already started, the middleware
   re-raises instead of attempting a second response.
-- **Excluded paths are still mapped.** Path exclusion skips request/response
-  logging, not response shaping — a mapped exception on an excluded path still
-  returns its configured response (with a minimal handled-failure log line).
+- **Excluded paths are fully bypassed by default.** No logging, no mapping —
+  exceptions propagate untouched, exactly as before. To surface mapped
+  exceptions on excluded paths too (e.g. high-frequency polling endpoints
+  excluded from access logs that must still fail cleanly), opt in with
+  `map_exceptions_on_excluded_paths=True`: a mapped failure there returns its
+  configured response and logs one minimal handled-failure line.
 - Works identically for FastAPI and Quart middlewares.
 
 ## Best Practices

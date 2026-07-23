@@ -146,13 +146,17 @@ class QuartMiddleware(BaseMiddleware):
         @self.app.errorhandler(Exception)
         async def handle_exception(error: Exception):
             """Log errors with request context."""
+            # Excluded paths are fully bypassed unless the service opts in to
+            # surfacing mapped exceptions there.
+            excluded = getattr(request, "observability_excluded", False)
+            if excluded and not self.config.map_exceptions_on_excluded_paths:
+                raise
+
             # Configured exception mapping: return a clean, handled response
             # instead of re-raising.
             mapping = resolve_exception_mapping(error, self.config.exception_mappings)
 
-            # Excluded paths: exclusion skips request/response logging, not
-            # response shaping — mapped exceptions still get their response.
-            if getattr(request, "observability_excluded", False):
+            if excluded:
                 if mapping is None:
                     raise
                 start_time = getattr(request, "observability_start_time", None)

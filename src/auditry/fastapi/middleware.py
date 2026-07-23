@@ -53,10 +53,14 @@ class FastAPIMiddleware:
             try:
                 await self.app(scope, receive, add_correlation_header)
             except Exception as error:
-                # Exception mappings still apply on excluded paths — exclusion
-                # skips request/response logging, not response shaping.
+                # Opt-in: surface mapped exceptions on excluded paths too.
+                # Exclusion skips request/response logging; with the flag set,
+                # response shaping still applies.
                 mapping = None
-                if not excluded_response_started:
+                if (
+                    self.config.map_exceptions_on_excluded_paths
+                    and not excluded_response_started
+                ):
                     mapping = resolve_exception_mapping(error, self.config.exception_mappings)
                 if mapping is None:
                     raise

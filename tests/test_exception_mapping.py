@@ -181,9 +181,16 @@ async def test_fastapi_no_mapped_response_after_response_started():
 # ---------------------------------------------------------------------------
 
 
-def test_fastapi_mapped_exception_on_excluded_path():
-    """Exclusion skips logging, not response shaping."""
+def test_fastapi_excluded_path_bypassed_by_default():
+    """Without the opt-in flag, excluded paths keep original behavior: no mapping."""
     config = _config(excluded_paths=["/mapped"])
+    response = _fastapi_client(config).get("/mapped")
+    assert response.status_code == 500
+
+
+def test_fastapi_mapped_exception_on_excluded_path_with_opt_in():
+    """With the flag, exclusion skips logging but response shaping still applies."""
+    config = _config(excluded_paths=["/mapped"], map_exceptions_on_excluded_paths=True)
     response = _fastapi_client(config).get("/mapped")
 
     assert response.status_code == 503
@@ -192,15 +199,32 @@ def test_fastapi_mapped_exception_on_excluded_path():
 
 
 def test_fastapi_unmapped_exception_on_excluded_path_propagates():
-    config = _config(excluded_paths=["/unmapped"])
+    config = _config(excluded_paths=["/unmapped"], map_exceptions_on_excluded_paths=True)
     response = _fastapi_client(config).get("/unmapped")
     assert response.status_code == 500
 
 
 @pytest.mark.asyncio
-async def test_quart_mapped_exception_on_excluded_path():
+async def test_quart_excluded_path_bypassed_by_default():
     app = Quart(__name__)
     app = create_quart_middleware(app, config=_config(excluded_paths=["/mapped"]))
+
+    @app.route("/mapped")
+    async def mapped():
+        raise TimeoutError("QueuePool limit reached, connection timed out")
+
+    client = app.test_client()
+    with pytest.raises(TimeoutError):
+        await client.get("/mapped")
+
+
+@pytest.mark.asyncio
+async def test_quart_mapped_exception_on_excluded_path_with_opt_in():
+    app = Quart(__name__)
+    app = create_quart_middleware(
+        app,
+        config=_config(excluded_paths=["/mapped"], map_exceptions_on_excluded_paths=True),
+    )
 
     @app.route("/mapped")
     async def mapped():
