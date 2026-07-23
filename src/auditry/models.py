@@ -114,9 +114,9 @@ class ObservabilityConfig(BaseModel):
         default=None,
         description=(
             "Ordered exception→response mappings handled at the middleware layer. "
-            "First isinstance match wins; unmatched exceptions are logged as errors "
-            "and re-raised as before. Not applied on excluded_paths unless "
-            "map_exceptions_on_excluded_paths is True."
+            "First isinstance match wins. Unmatched exceptions are logged and "
+            "re-raised on non-excluded paths; excluded paths re-raise without "
+            "logging unless map_exceptions_on_excluded_paths is True."
         ),
     )
     map_exceptions_on_excluded_paths: bool = Field(
