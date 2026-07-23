@@ -5,6 +5,7 @@ from .base import (
     BaseResponseAdapter,
     BaseMiddleware,
 )
+from .exceptions import resolve_exception_mapping
 from .logger import RequestResponseLogger
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "BaseResponseAdapter",
     "BaseMiddleware",
     "RequestResponseLogger",
+    "resolve_exception_mapping",
 ]

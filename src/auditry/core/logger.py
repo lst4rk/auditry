@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 
-from ..models import ObservabilityConfig, BusinessEventConfig
+from ..models import ObservabilityConfig, BusinessEventConfig, ExceptionMapping
 from ..redaction import redact_data, redact_headers
 
 
@@ -182,21 +182,70 @@ class RequestResponseLogger:
             correlation_id: Optional correlation ID
             user_id: Optional user ID
         """
+        self._log_failure(
+            request_data, error, duration_ms, correlation_id, user_id, level="error"
+        )
+
+    def log_handled_error(
+        self,
+        request_data: Dict[str, Any],
+        error: BaseException,
+        mapping: ExceptionMapping,
+        duration_ms: float,
+        correlation_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> None:
+        """
+        Log a request failure handled by a configured exception mapping.
+
+        Logs at the mapping's configured level (a known, handled failure mode
+        is typically a warning, not an error) and records the mapped status.
+        """
+        self._log_failure(
+            request_data,
+            error,
+            duration_ms,
+            correlation_id,
+            user_id,
+            level=mapping.log_level,
+            status_code=mapping.status_code,
+        )
+
+    def _log_failure(
+        self,
+        request_data: Dict[str, Any],
+        error: BaseException,
+        duration_ms: float,
+        correlation_id: Optional[str],
+        user_id: Optional[str],
+        level: str,
+        status_code: Optional[int] = None,
+    ) -> None:
+        """Shared failure-logging path; status_code is set for handled mappings."""
         self._bind_context(correlation_id, user_id)
+
+        exc_name = type(error).__name__
+        exc_msg = str(error)
 
         # Build log entry
         log_entry = {
             "service": self.service_name,
             "request": request_data,
             "execution_duration_ms": duration_ms,
-            "exception_type": type(error).__name__,
-            "exception_message": str(error),
+            "exception_type": exc_name,
+            "exception_message": exc_msg,
         }
 
-        # Log the error
-        self.logger.error(
-            f"Request failed: {request_data['method']} {request_data['path']} - "
-            f"Error: {type(error).__name__}: {str(error)} - Duration: {duration_ms:.2f}ms",
+        handled = status_code is not None
+        if handled:
+            log_entry["status_code"] = status_code
+
+        label = "Request failed (handled)" if handled else "Request failed"
+        status_part = f" - Status: {status_code}" if handled else ""
+
+        getattr(self.logger, level)(
+            f"{label}: {request_data.get('method', 'UNKNOWN')} {request_data.get('path', '/')} - "
+            f"Error: {exc_name}: {exc_msg}{status_part} - Duration: {duration_ms:.2f}ms",
             exc_info=True,
             **log_entry
         )
