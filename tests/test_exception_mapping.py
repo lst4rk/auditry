@@ -97,7 +97,7 @@ def test_resolver_unwraps_single_leaf_group_duck_typed():
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="ExceptionGroup requires 3.11+")
 def test_resolver_unwraps_real_exception_group():
     mappings = [ExceptionMapping(exception_type=TimeoutError, status_code=503, body={})]
-    group = ExceptionGroup("wrapped", [TimeoutError("pool timeout")])
+    group = ExceptionGroup("wrapped", [TimeoutError("pool timeout")])  # noqa: F821  # 3.11+ builtin, guarded by skipif
     assert resolve_exception_mapping(group, mappings) is mappings[0]
 
 

@@ -244,7 +244,7 @@ class RequestResponseLogger:
         status_part = f" - Status: {status_code}" if handled else ""
 
         getattr(self.logger, level)(
-            f"{label}: {request_data['method']} {request_data['path']} - "
+            f"{label}: {request_data.get('method', 'UNKNOWN')} {request_data.get('path', '/')} - "
             f"Error: {exc_name}: {exc_msg}{status_part} - Duration: {duration_ms:.2f}ms",
             exc_info=True,
             **log_entry
