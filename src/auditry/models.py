@@ -34,7 +34,7 @@ class ExceptionMapping(BaseModel):
     middleware instead of re-raising. See README "Exception Mapping".
     """
 
-    exception_type: Type[BaseException] = Field(
+    exception_type: Type[Exception] = Field(
         description="Exception class to match (subclasses match via isinstance)"
     )
     status_code: int = Field(

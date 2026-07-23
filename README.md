@@ -460,8 +460,8 @@ Details:
 
 - **Exception groups are unwrapped.** anyio task groups (Starlette, async
   SQLAlchemy) wrap the real exception in an `ExceptionGroup`; single-leaf
-  groups are recursively unwrapped before matching, so the mapping above
-  catches the pool timeout even when it arrives wrapped.
+  groups are unwrapped up to 10 nested levels before matching, so the mapping
+  above catches the pool timeout even when it arrives wrapped.
 - **Streaming-safe.** If the response has already started, the middleware
   re-raises instead of attempting a second response.
 - **Excluded paths are fully bypassed by default.** No logging, no mapping —
