@@ -246,7 +246,9 @@ class RequestResponseLogger:
         getattr(self.logger, level)(
             f"{label}: {request_data.get('method', 'UNKNOWN')} {request_data.get('path', '/')} - "
             f"Error: {exc_name}: {exc_msg}{status_part} - Duration: {duration_ms:.2f}ms",
-            exc_info=True,
+            # Pass the held exception directly so Sentry capture never depends on
+            # ambient sys.exc_info() state (may be empty for handled mappings).
+            exc_info=error,
             **log_entry
         )
 
