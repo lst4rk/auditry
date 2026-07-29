@@ -173,3 +173,70 @@ def test_real_sentry_sdk_sends_one_exception_envelope(monkeypatch):
     ]
     assert len(events) == 1
     assert events[0]["exception"]["values"]
+
+
+def test_capture_survives_a_transient_failure(monkeypatch):
+    # A single capture failure must not disable capture for the rest of the
+    # process; the next record still gets reported.
+    class FlakySentry(SentryStub):
+        def __init__(self):
+            super().__init__()
+            self.calls = 0
+
+        def capture_exception(self, error=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("transport boom")
+            super().capture_exception(error)
+
+    stub = FlakySentry()
+    monkeypatch.setattr(
+        "sentry_sdk.integrations.logging.ignore_logger", lambda name: None
+    )
+    monkeypatch.setattr(logging_config, "sentry_sdk", stub)
+    configure_logging(level="INFO", sentry_capture=True)
+    err = ValueError("boom")
+    get_logger("test").error("first", exc_info=err)  # induced failure, swallowed
+    get_logger("test").error("second", exc_info=err)  # must still capture
+    assert stub.calls == 2
+    assert stub.exceptions == [err]
+
+
+def test_warns_when_logging_integration_double_reports(monkeypatch):
+    sentry_sdk = pytest.importorskip("sentry_sdk")
+    from sentry_sdk.integrations.logging import LoggingIntegration
+    from sentry_sdk.transport import Transport
+
+    class NullTransport(Transport):
+        def capture_envelope(self, envelope):
+            pass
+
+    monkeypatch.setattr(logging_config, "sentry_sdk", sentry_sdk)
+    sentry_sdk.init(
+        dsn="https://public@example.invalid/1",
+        transport=NullTransport,
+        default_integrations=False,
+        integrations=[LoggingIntegration()],  # default event_level=ERROR
+    )
+    with pytest.warns(RuntimeWarning, match="reported twice"):
+        configure_logging(level="INFO", sentry_capture=True)
+
+
+def test_no_double_report_warning_when_event_level_none(monkeypatch, recwarn):
+    sentry_sdk = pytest.importorskip("sentry_sdk")
+    from sentry_sdk.integrations.logging import LoggingIntegration
+    from sentry_sdk.transport import Transport
+
+    class NullTransport(Transport):
+        def capture_envelope(self, envelope):
+            pass
+
+    monkeypatch.setattr(logging_config, "sentry_sdk", sentry_sdk)
+    sentry_sdk.init(
+        dsn="https://public@example.invalid/1",
+        transport=NullTransport,
+        default_integrations=False,
+        integrations=[LoggingIntegration(event_level=None)],
+    )
+    configure_logging(level="INFO", sentry_capture=True)
+    assert [w for w in recwarn if issubclass(w.category, RuntimeWarning)] == []

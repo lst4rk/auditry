@@ -8,17 +8,24 @@ correlation IDs and is optimized for log aggregators like Datadog.
 import logging
 import sys
 import warnings
-from collections.abc import Iterable
-from typing import Optional
+from collections.abc import Iterable, MutableMapping
+from typing import Any, Literal, Optional
 
 import structlog
 
 try:
     import sentry_sdk
 except ImportError:  # pragma: no cover - optional dependency
-    sentry_sdk = None
+    sentry_sdk = None  # type: ignore[assignment]
 
-_SENTRY_LEVELS = {"error": "error", "exception": "error", "critical": "fatal"}
+# Values are a subset of sentry-sdk's LogLevelStr; typed so capture_message's
+# level argument satisfies strict mypy without importing sentry's private types.
+_SentryLevel = Literal["error", "fatal"]
+_SENTRY_LEVELS: dict[str, _SentryLevel] = {
+    "error": "error",
+    "exception": "error",
+    "critical": "fatal",
+}
 
 # structlog event_dict keys forwarded to Sentry as tags. Deliberately narrow:
 # _log_failure stores request/response bodies in the event dict, and shipping
@@ -36,12 +43,15 @@ _SENTRY_CONTEXT_KEYS = (
 # these, so leaving them enabled double-reports every error log.
 _DEFAULT_SENTRY_IGNORE_LOGGERS = ("auditry.core.logger",)
 
-# Latches after a capture failure so a persistent fault warns once instead of
-# flooding the logs. Reset each time configure_logging runs.
-_sentry_capture_disabled = False
+# Set after the first capture failure so a persistent fault is reported once
+# instead of flooding the logs; capture keeps being attempted regardless.
+# Reset each time configure_logging runs.
+_sentry_capture_warned = False
 
 
-def _capture_to_sentry(logger, method_name, event_dict):
+def _capture_to_sentry(
+    logger: Any, method_name: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
     """
     Report error-level logs to Sentry before exc_info is flattened to a string.
 
@@ -54,9 +64,8 @@ def _capture_to_sentry(logger, method_name, event_dict):
     interleaved errors under concurrency may still occasionally double-report.
     No-op when sentry_sdk is absent or not initialized.
     """
-    global _sentry_capture_disabled
     level = _SENTRY_LEVELS.get(method_name)
-    if sentry_sdk is None or level is None or _sentry_capture_disabled:
+    if sentry_sdk is None or level is None:
         return event_dict
     try:
         # new_scope on sentry-sdk >=2, push_scope on >=1 (deprecated in 2 but
@@ -80,13 +89,39 @@ def _capture_to_sentry(logger, method_name, event_dict):
             else:
                 sentry_sdk.capture_message(str(event_dict.get("event", "")), level=level)
     except Exception:  # pragma: no cover - reporting must never break logging
-        # Latch off and say so once; a broken transport or an incompatible
-        # sentry-sdk must not silently no-op forever or flood the logs.
-        _sentry_capture_disabled = True
-        logging.getLogger(__name__).warning(
-            "auditry sentry capture failed; disabling for this process", exc_info=True
-        )
+        # Never raise out of logging, but don't go silent-forever either: report
+        # once at ERROR (so it can reach Sentry for consumers who keep
+        # event_level on) and keep trying. A transient transport fault or a
+        # single bad value must not disable all capture for the process.
+        global _sentry_capture_warned
+        if not _sentry_capture_warned:
+            _sentry_capture_warned = True
+            logging.getLogger(__name__).error(
+                "auditry sentry capture failed; capture continues but events may be lost",
+                exc_info=True,
+            )
     return event_dict
+
+
+def _logging_integration_double_reports() -> bool:
+    """
+    True when Sentry's LoggingIntegration will also create events for error logs.
+
+    Its handler defaults to event_level=ERROR, so with sentry_capture the same
+    error is reported twice (our exc_info capture plus a JSON-blob message).
+    ignore_logger only covers exact logger names, so consumer loggers still
+    double-report; detect the conflict here rather than leaving it to prose.
+    Probing must never break configure_logging, so any failure reads as "no".
+    """
+    try:
+        get_client = getattr(sentry_sdk, "get_client", None)
+        if get_client is None:  # sentry-sdk <2 or stubbed in tests
+            return False
+        integrations = getattr(get_client(), "integrations", None) or {}
+        handler = getattr(integrations.get("logging"), "_handler", None)
+        return handler is not None and handler.level <= logging.ERROR
+    except Exception:  # pragma: no cover - detection is best-effort
+        return False
 
 
 def configure_logging(
@@ -108,13 +143,14 @@ def configure_logging(
             reported twice; consumers who route additional loggers through this
             pipeline should either add them there or set event_level=None on
             their own LoggingIntegration.
-        sentry_ignore_loggers: Logger names to hand to Sentry's ignore_logger so
-            LoggingIntegration stops creating message-based events for them.
-            Defaults to auditry's own logger; pass an explicit iterable to
-            extend or override.
+        sentry_ignore_loggers: Additional logger names handed to Sentry's
+            ignore_logger so LoggingIntegration stops creating message-based
+            events for them. Unioned with auditry's own logger, never replacing
+            it. Names are matched exactly by record name, not hierarchically, so
+            "pkg" does not cover "pkg.module".
     """
-    global _sentry_capture_disabled
-    _sentry_capture_disabled = False
+    global _sentry_capture_warned
+    _sentry_capture_warned = False
     # Configure structlog processors
     processors = [
         # Add log level to event dict
@@ -135,15 +171,28 @@ def configure_logging(
         else:
             # Stop LoggingIntegration from also reporting these loggers as
             # JSON-blob-grouped message events (double-reporting otherwise).
+            # Union with the default so a caller covering their own loggers can
+            # never silently re-enable double-reporting of auditry's own.
             from sentry_sdk.integrations.logging import ignore_logger
 
-            ignore = (
-                _DEFAULT_SENTRY_IGNORE_LOGGERS
-                if sentry_ignore_loggers is None
-                else sentry_ignore_loggers
-            )
+            ignore = set(_DEFAULT_SENTRY_IGNORE_LOGGERS)
+            if sentry_ignore_loggers is not None:
+                ignore |= set(sentry_ignore_loggers)
             for name in ignore:
                 ignore_logger(name)
+            # ignore_logger only covers exact names, so consumer loggers still
+            # double-report under a stock init. Warn instead of leaving it to
+            # the README.
+            if _logging_integration_double_reports():
+                warnings.warn(
+                    "auditry sentry_capture is enabled while Sentry's "
+                    "LoggingIntegration still creates events (event_level<=ERROR); "
+                    "error logs from loggers other than auditry's own will be "
+                    "reported twice. Pass LoggingIntegration(event_level=None) to "
+                    "sentry_sdk.init().",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
             # Report to Sentry while exc_info is still an exception
             processors.append(_capture_to_sentry)
     processors += [
