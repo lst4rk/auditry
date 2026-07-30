@@ -488,7 +488,36 @@ app = FastAPI()
 # ... rest of your app
 ```
 
-### 2. Use Structured Logging
+### 2. Sentry Integration (optional)
+
+Install the extra and enable `sentry_capture` to report error-level logs to Sentry
+with the exception intact, so issues group by stacktrace instead of the rendered
+JSON log line:
+
+```bash
+pip install 'auditry[sentry]'
+```
+
+```python
+import sentry_sdk
+from sentry_sdk.integrations.logging import LoggingIntegration
+from auditry import configure_logging
+
+# Disable LoggingIntegration event capture — auditry reports these itself, and
+# leaving it on double-reports every error. auditry already suppresses its own
+# logger; set event_level=None if you route other loggers through this pipeline.
+sentry_sdk.init(
+    dsn="...",
+    integrations=[LoggingIntegration(event_level=None)],
+)
+
+configure_logging(level="INFO", sentry_capture=True)
+```
+
+Enabling `sentry_capture=True` without `auditry[sentry]` installed emits a
+`RuntimeWarning` and is otherwise a no-op.
+
+### 3. Use Structured Logging
 
 Always use `get_logger(__name__)` instead of standard Python logging:
 
@@ -505,7 +534,7 @@ import logging
 logging.info("Processing payment")
 ```
 
-### 3. Propagate Correlation IDs
+### 4. Propagate Correlation IDs
 
 When calling downstream services, always pass the correlation ID:
 
@@ -517,7 +546,7 @@ headers = {"X-Request-ID": correlation_id}  # Use your org's header name
 response = await client.get(url, headers=headers)
 ```
 
-### 4. Customize for Your Organization
+### 5. Customize for Your Organization
 
 Match your org's conventions:
 
